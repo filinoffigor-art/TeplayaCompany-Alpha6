@@ -1,0 +1,71 @@
+name: Build TK4 Alpha6 Full Demo
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/build-alpha6.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Gradle 8.11.1
+        run: |
+          curl -L --fail --retry 3 -o gradle.zip https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+          unzip -q gradle.zip
+          ./gradle-8.11.1/bin/gradle --version
+
+      - name: Static checks
+        run: |
+          grep -q "versionName '6.0.0-alpha6'" app/build.gradle
+          grep -q "targetSdk 34" app/build.gradle
+          test -f app/src/main/java/ru/teplayakompaniya/tk4/MainActivity.java
+          test -f app/src/main/AndroidManifest.xml
+          if grep -R "WebView" -n app/src/main; then
+            echo "ERROR: Alpha6 must remain native and contain no WebView"
+            exit 1
+          fi
+          echo "Static checks OK"
+
+      - name: Unit tests
+        run: ./gradle-8.11.1/bin/gradle testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Android Lint
+        run: ./gradle-8.11.1/bin/gradle lintDebug --no-daemon --stacktrace
+
+      - name: Build APK
+        run: ./gradle-8.11.1/bin/gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk TeplayaCompany-v6.0.0-alpha6.apk
+          ls -lh TeplayaCompany-v6.0.0-alpha6.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeplayaCompany-v6.0.0-alpha6
+          path: TeplayaCompany-v6.0.0-alpha6.apk
+          retention-days: 30
