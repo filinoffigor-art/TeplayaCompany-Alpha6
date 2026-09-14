@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ru.teplayakompaniya.tk4'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'ru.teplayakompaniya.tk4'
+        minSdk 26
+        targetSdk 34
+        versionCode 600001
+        versionName '6.0.0-alpha6'
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

@@ -1,0 +1,18 @@
+{
+  "package": "TK4_ALPHA6_GITHUB_PACKAGE",
+  "version": "6.0.0-alpha6",
+  "entryActivity": "app/src/main/java/ru/teplayakompaniya/tk4/MainActivity.java",
+  "workflow": ".github/workflows/build-alpha6.yml",
+  "apkArtifact": "TeplayaCompany-v6.0.0-alpha6.apk",
+  "backendSkeleton": "backend/google_apps_script/Code.gs",
+  "docs": [
+    "GOOGLE_SHEETS_SCHEMA.md",
+    "DATA_MODEL.md",
+    "ACCEPTANCE_TESTS.md",
+    "GITHUB_DEPLOY.md",
+    "FINANCIAL_RULES.md",
+    "ROLE_ACCESS.md",
+    "SCREEN_HIERARCHY.md",
+    "MASTER_SPEC_ALPHA6.md"
+  ]
+}
