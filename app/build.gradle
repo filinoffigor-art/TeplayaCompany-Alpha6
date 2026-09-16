@@ -10,8 +10,8 @@ android {
         applicationId 'ru.teplayakompaniya.tk4'
         minSdk 26
         targetSdk 34
-        versionCode 600001
-        versionName '6.0.0-alpha6'
+        versionCode 601001
+        versionName '6.1.0-alpha6.1'
     }
 
     buildTypes {
