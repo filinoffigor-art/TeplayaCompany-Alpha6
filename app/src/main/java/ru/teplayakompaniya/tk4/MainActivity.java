@@ -10,6 +10,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -20,9 +22,13 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.*;
+import android.util.Base64;
 import java.text.NumberFormat;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -65,18 +71,38 @@ public class MainActivity extends Activity {
     private String leaderName = "Игорь Игоревич";
     private String demoRole = "Руководитель";
     private SharedPreferences prefs;
+    private ApiClient api;
+    private boolean liveSyncOk = false;
+    private boolean syncInProgress = false;
+    private String lastSyncText = "Ещё не выполнялась";
+    private final Map<String,Long> liveKpis = new HashMap<>();
+    private final List<AttentionItem> liveAttention = new ArrayList<>();
+    private final List<PaymentItem> livePaymentPlan = new ArrayList<>();
+    private final List<MediaItem> liveMedia = new ArrayList<>();
+    private final List<CalendarItem> liveCalendar = new ArrayList<>();
+    private String pendingMediaObjectId = null;
+    private static final int REQ_PICK_MEDIA = 4107;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        prefs = getSharedPreferences("tk4_demo", MODE_PRIVATE);
+        prefs = getSharedPreferences("tk4_connected", MODE_PRIVATE);
         loadDemoState();
+        api = new ApiClient(this, prefs);
         configureSystemBars();
 
         root = new FrameLayout(this);
         root.setBackgroundColor(screenBg());
         setContentView(root);
         showMain(false);
+
+        if (ApiClient.isConfigured()) {
+            if (api.hasToken()) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> syncNow(false), 350);
+            } else {
+                new Handler(Looper.getMainLooper()).postDelayed(this::showPairingDialog, 500);
+            }
+        }
     }
 
     private void configureSystemBars() {
@@ -287,7 +313,7 @@ public class MainActivity extends Activity {
         hello.addView(htxt,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
         LinearLayout date = v(); date.setGravity(Gravity.CENTER_VERTICAL);
         date.addView(tv("Сегодня",11,MUTED,Typeface.NORMAL));
-        date.addView(tv("12 сентября 2026",13,INK,Typeface.BOLD)); hello.addView(date);
+        date.addView(tv(LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM yyyy",new Locale("ru","RU"))),13,INK,Typeface.BOLD)); hello.addView(date);
         LinearLayout.LayoutParams hp=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0); hp.setMargins(0,dp(8),0,dp(10)); content.addView(hello,hp);
     }
 
@@ -300,7 +326,7 @@ public class MainActivity extends Activity {
             boolean sel=x.equals(currentPeriod);
             TextView t=tv(x,11,sel?WHITE:MUTED,Typeface.NORMAL); t.setGravity(Gravity.CENTER);
             if(sel) t.setBackground(round(GREEN,14));
-            t.setOnClickListener(v->{ currentPeriod=x; saveDemoState(); render(); });
+            t.setOnClickListener(v->{ currentPeriod=x; saveDemoState(); if(api!=null && api.hasToken()) syncNow(false); else render(); });
             period.addView(t,new LinearLayout.LayoutParams(0,dp(40),1));
         }
         content.addView(period); spacer(10);
@@ -401,7 +427,7 @@ public class MainActivity extends Activity {
         long expenses=actualExpenses();
         long profit=Math.max(0,turnover-expenses);
         int inWork=countStatus("В работе");
-        int planned=countStatus("Запланирован")+countStatus("Подтверждён клиентом");
+        int planned=liveKpiInt("plannedObjects",countStatus("Запланирован")+countStatus("Подтверждён")+countStatus("Подтверждён клиентом")+countStatus("Готов к монтажу"));
 
         LinearLayout row1=h(); row1.setWeightSum(2f);
         row1.addView(kpiCard("₽","Оборот",money(turnover),"Фактические поступления",GREEN,"kpi:turnover"),weight());
@@ -417,8 +443,8 @@ public class MainActivity extends Activity {
         content.addView(plannedReceipts);
 
         sectionTitle("Ключевые показатели",currentPeriod+"⌄",v->showPeriodDialog());
-        addThreeMini(miniCard("●●","Лиды",String.valueOf((int)periodValue(42)),BLUE,"kpi:leads"),
-                miniCard("▰","Замеры",String.valueOf((int)periodValue(20)),ORANGE,"surveys"),
+        addThreeMini(miniCard("●●","Лиды",String.valueOf(liveKpiInt("leads",(int)periodValue(42))),BLUE,"kpi:leads"),
+                miniCard("▰","Замеры",String.valueOf(liveKpiInt("surveys",surveys.size())),ORANGE,"surveys"),
                 miniCard("▣","Договоры",String.valueOf(contractCountForPeriod()),GREEN,"kpi:contracts"));
         spacer(7);
         addThreeMini(miniCard("≋","Средний чек",money(averageCheck()),ORANGE,"kpi:avg"),
@@ -431,10 +457,18 @@ public class MainActivity extends Activity {
         addFourQuick(quickCard("₽","Финансы",GREEN,"finance"),quickCard("▥","Аналитика",BLUE,"analytics"),quickCard("▦","Календарь",RED,"calendar"),quickCard("⚙","Справочники",MUTED,"settings"));
 
         sectionTitle("Сегодня требует внимания","Все уведомления ›",v->navigate("kpi:notifications"));
-        content.addView(attention("◷","Просрочен платёж","Королёв, ул. Полевая, 7 · 200 000 ₽",RED,"payments:OBJ-002"));
-        content.addView(attention("▰","Замеры сегодня не обновлены","Инженеру нужно внести данные за день",ORANGE,"surveys"));
-        content.addView(attention("●","Лиды сегодня не обновлены","SMM должен внести количество лидов",ORANGE,"kpi:leads"));
-        content.addView(attention("▤","Подтверждённый объект без полного ТЗ","Ивантеевка, ул. Южная, 3",RED,"tech:OBJ-004"));
+        if(liveSyncOk && !liveAttention.isEmpty()){
+            int max=Math.min(8,liveAttention.size());
+            for(int i=0;i<max;i++){
+                AttentionItem a=liveAttention.get(i);
+                int tint="red".equals(a.severity)?RED:ORANGE;
+                content.addView(attention("!",a.title,a.subtitle,tint,a.target));
+            }
+        }else if(liveSyncOk){
+            content.addView(attention("✓","Критичных событий нет","По данным последней синхронизации",GREEN,null));
+        }else{
+            content.addView(attention("↻","Нет связи с рабочей таблицей","Откройте Настройки → Синхронизация",ORANGE,"settings"));
+        }
     }
 
     // ---------- objects ----------
@@ -444,14 +478,14 @@ public class MainActivity extends Activity {
 
         LinearLayout a=h(); a.addView(miniCard("⌂","В работе",String.valueOf(countStatus("В работе")),GREEN,"kpi:objects_work"),weight());
         a.addView(miniCard("▦","Запланированы",String.valueOf(countStatus("Запланирован")),BLUE,"kpi:objects_planned"),weightMarginLeft()); content.addView(a); spacer(7);
-        LinearLayout b=h(); b.addView(miniCard("✓","Подтверждены",String.valueOf(countStatus("Подтверждён клиентом")),ORANGE,"kpi:objects_confirmed"),weight());
+        LinearLayout b=h(); b.addView(miniCard("✓","Подтверждены",String.valueOf(countStatus("Подтверждён")+countStatus("Подтверждён клиентом")+countStatus("Готов к монтажу")),ORANGE,"kpi:objects_confirmed"),weight());
         b.addView(miniCard("▰","Замеры за месяц",String.valueOf(surveys.size()),BLUE,"surveys"),weightMarginLeft()); content.addView(b); spacer(7);
         content.addView(miniCard("↪","В монтаж перешли",String.valueOf(countConvertedSurveys()),BLUE,"surveys"));
 
         spacer(10); LinearLayout filters=h();
-        String[] fs={"Все","В работе","Запланирован","Подтверждён клиентом","Завершён"};
+        String[] fs={"Все","В работе","Запланирован","Подтверждён","Готов к монтажу","Завершён","Работы завершены","Закрыт 100%"};
         for(String f:fs){
-            boolean sel=f.equals(objectFilter); String label=f.equals("Запланирован")?"Запланированы":f.equals("Подтверждён клиентом")?"Подтверждены":f.equals("Завершён")?"Завершены":f;
+            boolean sel=f.equals(objectFilter); String label=f.equals("Запланирован")?"Запланированы":f.equals("Подтверждён")?"Подтверждены":f.equals("Завершён")?"Завершены":f;
             TextView chip=pillText(label,10,sel?WHITE:INK,sel?GREEN:softBg()); chip.setPadding(dp(11),dp(7),dp(11),dp(7));
             chip.setOnClickListener(v->{objectFilter=f;showObjects();});
             LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(34)); cp.setMargins(0,0,dp(5),0); filters.addView(chip,cp);
@@ -509,14 +543,14 @@ public class MainActivity extends Activity {
         beginScreen(true); appBar("Карточка объекта",o.address); content.addView(infoHero(o.address,o.status,o.progress));
 
         LinearLayout actions=h();
-        Button call=smallButton("☎ Клиент",GREEN); call.setOnClickListener(v->dial("+79151234567"));
+        Button call=smallButton("☎ Клиент",GREEN); call.setOnClickListener(v->dial(o.phone));
         Button map=smallButton("⌖ Адрес",BLUE); map.setOnClickListener(v->openMap(o.address));
         Button status=smallButton("Статус",ORANGE); status.setOnClickListener(v->changeObjectStatus(o));
         actions.addView(call,weight());actions.addView(map,weightMarginLeft());actions.addView(status,weightMarginLeft()); content.addView(actions,lpMatch(dp(46),8));
 
         sectionTitle("Клиент и объект",null,null);
-        content.addView(clickableInfoRow("Клиент",o.client,v->dial("+79151234567")));
-        content.addView(clickableInfoRow("Телефон","+7 915 123-45-67",v->dial("+79151234567")));
+        content.addView(clickableInfoRow("Клиент",o.client,v->dial(o.phone)));
+        content.addView(clickableInfoRow("Телефон",o.phone==null||o.phone.isEmpty()?"Не указан":o.phone,v->dial(o.phone)));
         content.addView(clickableInfoRow("Адрес",o.address,v->openMap(o.address)));
         content.addView(infoRow("Вид работ",o.workType)); content.addView(clickableInfoRow("Инженер",o.engineer,v->navigate("engineers")));
         content.addView(clickableInfoRow("Менеджер",o.manager,v->navigate("managers"))); content.addView(clickableInfoRow("Монтажники",o.installers,v->navigate("installers")));
@@ -536,14 +570,14 @@ public class MainActivity extends Activity {
     private void showCreateObject() {
         beginScreen(true); appBar("Создать объект","Новый объект в системе");
         LinearLayout sync=v();sync.setPadding(dp(12),dp(10),dp(12),dp(10));sync.setBackground(round(light(GREEN),16));
-        sync.addView(tv("● ДЕМО-БАЗА АКТИВНА",13,GREEN_DARK,Typeface.BOLD));
-        sync.addView(tv("Сейчас запись хранится локально на телефоне. Google Sheets подключим следующим этапом.",10,MUTED,Typeface.NORMAL));content.addView(sync);
+        sync.addView(tv(liveSyncOk?"● GOOGLE SHEETS СИНХРОНИЗИРОВАНА":"● ОЖИДАНИЕ СИНХРОНИЗАЦИИ",13,GREEN_DARK,Typeface.BOLD));
+        sync.addView(tv(liveSyncOk?"Объект будет сразу записан в рабочую таблицу 4.2.":"Проверьте подключение в Настройки → Синхронизация.",10,MUTED,Typeface.NORMAL));content.addView(sync);
 
         final EditText client=field("Клиент *","Иванов Сергей Петрович"); final EditText phone=field("Телефон","+7 915 123-45-67");
         final EditText address=field("Адрес объекта *","Московская обл., г. Химки, ул. Лесная, д. 12");
         final EditText type=choiceField("Вид работ *","Комплексное утепление",new String[]{"Комплексное утепление","Утепление пола","Утепление стен","Мансарда","Фасад","Фасад + утепление"});
         final EditText sum=field("Сумма договора","350000"); final EditText survey=field("Дата замера","10.09.2026"); final EditText plan=field("Плановая дата монтажа","25.09.2026");
-        final EditText status=choiceField("Статус объекта","Подтверждён клиентом",new String[]{"Подтверждён клиентом","Запланирован","В работе","Приостановлен"});
+        final EditText status=choiceField("Статус объекта","Подтверждён",new String[]{"Запланирован","Подтверждён","Готов к монтажу","В работе","Приостановлен"});
         final EditText engineer=choiceField("Инженер","Константин",engineerNames()); final EditText manager=choiceField("Менеджер","Игорь Игоревич",managerNames());
 
         sectionTitle("После сохранения",null,null);content.addView(attention("▤","Техническое задание","Можно сразу назначить монтажников, суммы и план по дням.",ORANGE,null));
@@ -551,49 +585,128 @@ public class MainActivity extends Activity {
         Button save=primary("Сохранить объект");
         save.setOnClickListener(v->{
             if(client.getText().toString().trim().isEmpty()||address.getText().toString().trim().isEmpty()){toast("Заполните клиента и адрес");return;}
-            long contract=parseLong(sum.getText().toString()); String id="OBJ-"+String.format(Locale.US,"%03d",objects.size()+1);
-            ObjectItem o=new ObjectItem(id,address.getText().toString(),client.getText().toString(),type.getText().toString(),status.getText().toString(),0,contract,0,engineer.getText().toString(),manager.getText().toString(),"Не назначены");
-            objects.add(0,o); saveDemoState();
-            new AlertDialog.Builder(this).setTitle("Объект создан").setMessage("Открыть техническое задание сейчас?")
-                    .setPositiveButton("Создать ТЗ",(d,w)->navigate("tech:"+id)).setNegativeButton("К объектам",(d,w)->navigate("objects")).show();
+            if(api!=null && api.hasToken()){
+                try{
+                    JSONObject b=new JSONObject();
+                    b.put("client",client.getText().toString().trim());
+                    b.put("phone",phone.getText().toString().trim());
+                    b.put("address",address.getText().toString().trim());
+                    b.put("workType",type.getText().toString().trim());
+                    b.put("contract",parseLong(sum.getText().toString()));
+                    b.put("planStart",plan.getText().toString().trim());
+                    b.put("status",status.getText().toString().trim());
+                    b.put("responsible",manager.getText().toString().trim());
+                    b.put("comment","Инженер: "+engineer.getText().toString().trim()+"; Замер: "+survey.getText().toString().trim());
+                    setBusy(save,true);
+                    api.mutate("createObject",b,new ApiClient.Callback(){
+                        public void onSuccess(JSONObject json){
+                            setBusy(save,false);
+                            String id=json.optString("id");
+                            syncNow(false);
+                            new AlertDialog.Builder(MainActivity.this).setTitle("Объект создан в Google Sheets")
+                                    .setMessage("Object_ID: "+id+"\n\nОткрыть техническое задание?")
+                                    .setPositiveButton("Создать ТЗ",(d,w)->navigate("tech:"+id))
+                                    .setNegativeButton("К объектам",(d,w)->navigate("objects")).show();
+                        }
+                        public void onError(String error){setBusy(save,false);showApiError(error);}
+                    });
+                }catch(Exception ex){showApiError(ex.toString());}
+            }else{
+                toast("Сначала подключите приложение к Google Sheets");
+                showPairingDialog();
+            }
         }); content.addView(save);
     }
 
     // ---------- tech task ----------
 
     private void showTechTask(String objectId) {
-        beginScreen(true); appBar("Техническое задание","Инженер · "+("NEW".equals(objectId)?"новый объект":objectId));
+        ObjectItem obj=findObject(objectId);
+        if(obj==null){navigate("objects");return;}
+        beginScreen(true); appBar("Техническое задание","Инженер · "+obj.address);
         TechTask existing=techTasks.get(objectId); if(existing==null) existing=new TechTask(objectId); final TechTask task=existing;
         final Map<String,CheckBox> checks=new LinkedHashMap<>(); final Map<String,EditText> wages=new LinkedHashMap<>();
 
-        sectionTitle("Монтажники на объекте","Конкретные сотрудники",null);
+        sectionTitle("Общие данные ТЗ","Object_ID: "+objectId,null);
+        final EditText planStart=taskField("План начала (дд.мм.гггг)","");
+        final EditText planEnd=taskField("План окончания (дд.мм.гггг)","");
+        final EditText windowFrom=taskField("Скользящее окно начала — от","");
+        final EditText windowTo=taskField("Скользящее окно начала — до","");
+        CheckBox materialsReady=new CheckBox(this);materialsReady.setText("Материалы / ресурсы подготовлены");materialsReady.setTextColor(resolveText(INK));content.addView(materialsReady);
+
+        sectionTitle("Монтажники на объекте","Конкретные сотрудники и согласованная сумма",null);
         for(InstallerItem i:installers){
             LinearLayout r=h();r.setPadding(dp(9),dp(8),dp(9),dp(8));r.setBackground(round(cardBg(),14));
             CheckBox cb=new CheckBox(this);cb.setChecked(task.installers.containsKey(i.name));checks.put(i.name,cb);r.addView(cb,new LinearLayout.LayoutParams(dp(44),dp(44)));
             LinearLayout name=v();name.addView(tv(i.name,12,INK,Typeface.BOLD));name.addView(tv(i.status,9,MUTED,Typeface.NORMAL));r.addView(name,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
-            EditText amount=edit("Сумма");amount.setInputType(InputType.TYPE_CLASS_NUMBER);Long saved=task.installers.get(i.name);amount.setText(saved==null?"40000":String.valueOf(saved));wages.put(i.name,amount);r.addView(amount,new LinearLayout.LayoutParams(dp(100),dp(44)));
+            EditText amount=edit("Сумма");amount.setInputType(InputType.TYPE_CLASS_NUMBER);Long saved=task.installers.get(i.name);amount.setText(saved==null?"":String.valueOf(saved));wages.put(i.name,amount);r.addView(amount,new LinearLayout.LayoutParams(dp(100),dp(44)));
             LinearLayout.LayoutParams rp=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);rp.setMargins(0,0,0,dp(6));content.addView(r,rp);
         }
 
-        sectionTitle("План объекта по дням","Редактируется инженером",null);
-        final EditText d1a=taskField("День 1 — задача 1",task.day1a); final EditText d1b=taskField("День 1 — задача 2",task.day1b);
-        final EditText d2a=taskField("День 2 — задача 1",task.day2a); final EditText d2b=taskField("День 2 — задача 2",task.day2b);
-        final EditText note=taskField("Комментарий монтажникам",task.note);
+        sectionTitle("План объекта по дням","Факт затем заполняется монтажником",null);
+        final EditText d1a=taskField("День 1 — задача 1",task.saved?task.day1a:"");
+        final EditText d1b=taskField("День 1 — задача 2",task.saved?task.day1b:"");
+        final EditText d2a=taskField("День 2 — задача 1",task.saved?task.day2a:"");
+        final EditText d2b=taskField("День 2 — задача 2",task.saved?task.day2b:"");
+        final EditText note=taskField("Комментарий монтажникам",task.saved?task.note:"");
 
-        sectionTitle("График оплат клиента","Формирует дебиторку и план поступлений",null);
-        final EditText p1=taskField("25.09.2026 — платёж",String.valueOf(task.pay1));
-        final EditText p2=taskField("27.09.2026 — платёж",String.valueOf(task.pay2));
-        final EditText p3=taskField("30.09.2026 — платёж",String.valueOf(task.pay3));
+        sectionTitle("График оплат клиента","Дебиторка = только просроченные этапы",null);
+        final EditText pd1=taskField("Этап 1 — дата","");
+        final EditText p1=taskField("Этап 1 — сумма",task.saved&&task.pay1>0?String.valueOf(task.pay1):"");
+        final EditText pd2=taskField("Этап 2 — дата","");
+        final EditText p2=taskField("Этап 2 — сумма",task.saved&&task.pay2>0?String.valueOf(task.pay2):"");
+        final EditText pd3=taskField("Этап 3 — дата","");
+        final EditText p3=taskField("Этап 3 — сумма",task.saved&&task.pay3>0?String.valueOf(task.pay3):"");
 
-        Button save=primary("Сохранить ТЗ");save.setOnClickListener(v->{
-            task.installers.clear();
-            for(InstallerItem i:installers){if(checks.get(i.name).isChecked())task.installers.put(i.name,Math.max(0,parseLong(wages.get(i.name).getText().toString())));}
-            task.day1a=d1a.getText().toString();task.day1b=d1b.getText().toString();task.day2a=d2a.getText().toString();task.day2b=d2b.getText().toString();task.note=note.getText().toString();
-            task.pay1=parseLong(p1.getText().toString());task.pay2=parseLong(p2.getText().toString());task.pay3=parseLong(p3.getText().toString());task.saved=true;techTasks.put(objectId,task);
-            ObjectItem o=findObject(objectId);if(o!=null){o.installers=task.installers.isEmpty()?"Не назначены":joinNames(task.installers.keySet()); if(o.status.equals("Подтверждён клиентом"))o.status="Запланирован";}
-            saveDemoState();toast("ТЗ сохранено. Монтажники и суммы закреплены.");
+        Button save=primary("Сохранить ТЗ в Google Sheets");
+        save.setOnClickListener(v->{
+            if(api==null||!api.hasToken()){showPairingDialog();return;}
+            try{
+                JSONObject b=new JSONObject();
+                b.put("objectId",objectId);b.put("status","Готово");b.put("engineer","Константин Шумкин");
+                b.put("workType",obj.workType);b.put("planStart",planStart.getText().toString().trim());b.put("planEnd",planEnd.getText().toString().trim());
+                b.put("windowFrom",windowFrom.getText().toString().trim());b.put("windowTo",windowTo.getText().toString().trim());
+                b.put("materialsReady",materialsReady.isChecked());b.put("comment",note.getText().toString().trim());
+
+                JSONArray asn=new JSONArray();task.installers.clear();
+                for(InstallerItem i:installers){
+                    CheckBox cb=checks.get(i.name); if(cb!=null&&cb.isChecked()){
+                        long wage=parseLong(wages.get(i.name).getText().toString());
+                        if(wage<=0){toast("Укажите согласованную сумму для "+i.name);return;}
+                        JSONObject a=new JSONObject();a.put("installerId",i.id);a.put("name",i.name);a.put("agreedAmount",wage);a.put("status","Назначен");asn.put(a);
+                        task.installers.put(i.name,wage);
+                    }
+                }
+                if(asn.length()==0){toast("Назначьте хотя бы одного монтажника");return;}b.put("assignments",asn);
+
+                JSONArray days=new JSONArray();
+                String[] tasks={d1a.getText().toString().trim(),d1b.getText().toString().trim(),d2a.getText().toString().trim(),d2b.getText().toString().trim()};
+                int[] dns={1,1,2,2};
+                for(int i=0;i<tasks.length;i++)if(!tasks[i].isEmpty()){JSONObject x=new JSONObject();x.put("dayNo",dns[i]);x.put("task",tasks[i]);x.put("status","План");days.put(x);}
+                if(days.length()==0){toast("Заполните план хотя бы на один день");return;}b.put("days",days);
+
+                JSONArray pays=new JSONArray();
+                String[] dates={pd1.getText().toString().trim(),pd2.getText().toString().trim(),pd3.getText().toString().trim()};
+                EditText[] amounts={p1,p2,p3};
+                for(int i=0;i<3;i++){
+                    long a=parseLong(amounts[i].getText().toString());
+                    if(a>0&&!dates[i].isEmpty()){JSONObject x=new JSONObject();x.put("stageNo",i+1);x.put("stageName","Этап "+(i+1));x.put("plannedDate",dates[i]);x.put("plannedAmount",a);pays.put(x);}
+                }
+                if(pays.length()==0){toast("Добавьте хотя бы один этап оплаты");return;}b.put("payments",pays);
+
+                setBusy(save,true);
+                api.mutate("saveTechTask",b,new ApiClient.Callback(){
+                    public void onSuccess(JSONObject json){
+                        setBusy(save,false);task.saved=true;task.day1a=tasks[0];task.day1b=tasks[1];task.day2a=tasks[2];task.day2b=tasks[3];task.note=note.getText().toString();
+                        task.pay1=parseLong(p1.getText().toString());task.pay2=parseLong(p2.getText().toString());task.pay3=parseLong(p3.getText().toString());techTasks.put(objectId,task);
+                        toast("ТЗ записано и связано с объектом");syncNow(false);
+                    }
+                    public void onError(String error){setBusy(save,false);showApiError(error);}
+                });
+            }catch(Exception ex){showApiError(ex.toString());}
         });content.addView(save);spacer(7);
-        Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->{save.performClick();shareTechTask(objectId);});content.addView(share);
+
+        Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->shareTechTask(objectId));content.addView(share);
     }
 
     private View dayCard(String title,String t1,String q1,String t2,String q2){
@@ -610,7 +723,7 @@ public class MainActivity extends Activity {
         StringBuilder sb=new StringBuilder("ТЁПЛАЯ КОМПАНИЯ — ТЕХНИЧЕСКОЕ ЗАДАНИЕ\n");
         sb.append("Объект: ").append(o==null?objectId:o.address).append("\n");
         if(t!=null){
-            sb.append("Монтажники:\n"); for(Map.Entry<String,Long> e:t.installers.entrySet())sb.append("• ").append(e.getKey()).append(" — ").append(money(e.getValue())).append("\n");
+            sb.append("Монтажники:\n"); for(Map.Entry<String,Long> e:t.installers.entrySet())sb.append("• ").append(e.getKey()).append("\n");
             sb.append("\nДень 1: ").append(t.day1a).append("; ").append(t.day1b).append("\n");
             sb.append("День 2: ").append(t.day2a).append("; ").append(t.day2b).append("\n");
             sb.append("Комментарий: ").append(t.note).append("\n");
@@ -690,25 +803,90 @@ public class MainActivity extends Activity {
     private void moneyDialog(String type){
         LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
         EditText amt=edit("Сумма");amt.setInputType(InputType.TYPE_CLASS_NUMBER);form.addView(labelWrap("Сумма",amt));
-        Spinner category=new Spinner(this);String[] cats=type.equals("INCOME")?new String[]{"Оплата клиента","Возврат","Прочий приход"}:new String[]{"Материалы","Зарплата/аванс","Топливо","Реклама","Аренда","Инструмент","Автомобили","Личные нужды","Прочее"};category.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,cats));form.addView(labelWrap("Категория",category));
-        Spinner owner=new Spinner(this);owner.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Игорь","Константин"}));form.addView(labelWrap("Подотчётное лицо",owner));
-        Spinner target=new Spinner(this);List<String> targets=new ArrayList<>();targets.add("Без привязки");for(ObjectItem o:objects)targets.add(o.address);for(InstallerItem i:installers)targets.add("Монтажник: "+i.name);target.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,targets));form.addView(labelWrap("Объект / монтажник",target));
+
+        Spinner category=new Spinner(this);
+        String[] cats=type.equals("INCOME")
+                ?new String[]{"Аванс","Промежуточный платёж","Окончательный расчёт","Прочий приход","Возврат клиенту"}
+                :new String[]{"Материалы","Зарплата бригады","Топливо","Расходники","Инструмент","Доставка / логистика","Проживание","Реклама","Аренда","Офис и склад","Связь и интернет","Личные","Прочее"};
+        category.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,cats));
+        form.addView(labelWrap(type.equals("INCOME")?"Вид платежа":"Статья расхода",category));
+
+        Spinner owner=new Spinner(this);
+        owner.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Игорь","Константин"}));
+        form.addView(labelWrap(type.equals("INCOME")?"Получил":"Подотчётное лицо",owner));
+
+        Spinner target=new Spinner(this);
+        List<String> targets=new ArrayList<>();targets.add("Без привязки");
+        for(ObjectItem o:objects)targets.add(o.address);
+        if(type.equals("EXPENSE"))for(InstallerItem i:installers)targets.add("Монтажник: "+i.name);
+        target.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,targets));
+        form.addView(labelWrap("Объект / монтажник",target));
+
+        EditText comment=edit("Комментарий");
+        form.addView(labelWrap("Комментарий",comment));
+
         String title=type.equals("INCOME")?"Добавить приход":"Добавить расход";
         new AlertDialog.Builder(this).setTitle(title).setView(form).setPositiveButton("Сохранить",(d,w)->{
-            long v=parseLong(amt.getText().toString());if(v<=0){toast("Сумма не указана");return;}String who=owner.getSelectedItem().toString();String sub=target.getSelectedItem().toString();String cat=category.getSelectedItem().toString();
-            txs.add(0,new MoneyTx(type,cat,sub,v)); if("Игорь".equals(who))igorBalance+=type.equals("INCOME")?v:-v;else konstantinBalance+=type.equals("INCOME")?v:-v;
-            if(type.equals("EXPENSE")&&sub.startsWith("Монтажник: ")){InstallerItem i=findInstallerByName(sub.substring(11));if(i!=null)i.paid+=v;}
-            saveDemoState();showFinance();
+            long v=parseLong(amt.getText().toString());if(v<=0){toast("Сумма не указана");return;}
+            if(api==null||!api.hasToken()){showPairingDialog();return;}
+            String who=owner.getSelectedItem().toString();
+            String targetValue=target.getSelectedItem().toString();
+            String cat=category.getSelectedItem().toString();
+            try{
+                JSONObject b=new JSONObject();
+                b.put("amount",v);b.put("comment",comment.getText().toString().trim());
+                if(type.equals("INCOME")){
+                    ObjectItem o=findObjectByAddress(targetValue);
+                    if(o==null){toast("Для прихода выберите объект");return;}
+                    b.put("objectId",o.id);b.put("paymentKind",cat);
+                    b.put("operation","Возврат клиенту".equals(cat)?"Возврат клиенту":"Приход");
+                    b.put("recipient",who);b.put("method","Наличные");
+                    api.mutate("addIncome",b,new ApiClient.Callback(){
+                        public void onSuccess(JSONObject json){toast("Приход записан в таблицу");syncNow(false);}
+                        public void onError(String error){showApiError(error);}
+                    });
+                }else{
+                    String expenseType="Прочий расход";String objectId="";String installerId="";
+                    ObjectItem o=findObjectByAddress(targetValue);
+                    if(o!=null){expenseType="По объекту";objectId=o.id;}
+                    if(targetValue.startsWith("Монтажник: ")){
+                        InstallerItem ins=findInstallerByName(targetValue.substring(11));
+                        if(ins!=null)installerId=ins.id;
+                    }
+                    b.put("type",expenseType);b.put("objectId",objectId);b.put("installerId",installerId);
+                    b.put("article",cat);b.put("description",comment.getText().toString().trim().isEmpty()?cat:comment.getText().toString().trim());
+                    b.put("quantity",1);b.put("unit","руб.");b.put("unitPrice",v);
+                    b.put("method","Наличные");b.put("paymentStatus","Оплачено");b.put("accountable",who);
+                    api.mutate("addExpense",b,new ApiClient.Callback(){
+                        public void onSuccess(JSONObject json){toast("Расход записан в таблицу");syncNow(false);}
+                        public void onError(String error){showApiError(error);}
+                    });
+                }
+            }catch(Exception ex){showApiError(ex.toString());}
         }).setNegativeButton("Отмена",null).show();
     }
 
     private void transferDialog(){
-        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);Spinner dir=new Spinner(this);dir.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Константин → Игорь","Игорь → Константин"}));form.addView(labelWrap("Направление",dir));EditText amt=edit("Сумма");amt.setInputType(InputType.TYPE_CLASS_NUMBER);form.addView(labelWrap("Сумма",amt));
-        new AlertDialog.Builder(this).setTitle("Передать деньги").setMessage("Внутренний перевод не является расходом и не меняет общий баланс компании.").setView(form).setPositiveButton("Передать",(d,w)->{
-            long v=parseLong(amt.getText().toString());String direction=dir.getSelectedItem().toString();if(v<=0)return;
-            if(direction.startsWith("Константин")){if(v>konstantinBalance){toast("Недостаточно у Константина");return;}konstantinBalance-=v;igorBalance+=v;}else{if(v>igorBalance){toast("Недостаточно у Игоря");return;}igorBalance-=v;konstantinBalance+=v;}
-            txs.add(0,new MoneyTx("TRANSFER",direction,"Внутренний перевод",v));saveDemoState();showFinance();
-        }).setNegativeButton("Отмена",null).show();
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
+        Spinner dir=new Spinner(this);dir.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Константин → Игорь","Игорь → Константин"}));form.addView(labelWrap("Направление",dir));
+        EditText amt=edit("Сумма");amt.setInputType(InputType.TYPE_CLASS_NUMBER);form.addView(labelWrap("Сумма",amt));
+        EditText comment=edit("Комментарий");form.addView(labelWrap("Комментарий",comment));
+        new AlertDialog.Builder(this).setTitle("Передать деньги")
+                .setMessage("Внутренний перевод не является расходом и не меняет общий баланс компании.")
+                .setView(form).setPositiveButton("Передать",(d,w)->{
+                    long v=parseLong(amt.getText().toString());if(v<=0)return;
+                    if(api==null||!api.hasToken()){showPairingDialog();return;}
+                    String direction=dir.getSelectedItem().toString();
+                    String from=direction.startsWith("Константин")?"Константин":"Игорь";
+                    String to=direction.startsWith("Константин")?"Игорь":"Константин";
+                    try{
+                        JSONObject b=new JSONObject();b.put("from",from);b.put("to",to);b.put("amount",v);b.put("comment",comment.getText().toString().trim());
+                        api.mutate("transfer",b,new ApiClient.Callback(){
+                            public void onSuccess(JSONObject json){toast("Передача записана");syncNow(false);}
+                            public void onError(String error){showApiError(error);}
+                        });
+                    }catch(Exception ex){showApiError(ex.toString());}
+                }).setNegativeButton("Отмена",null).show();
     }
 
     // ---------- analytics ----------
@@ -718,8 +896,8 @@ public class MainActivity extends Activity {
         LinearLayout a=h();a.addView(kpiCard("₽","Оборот",money(actualTurnover()),"Фактические приходы",GREEN,"kpi:turnover"),weight());a.addView(kpiCard("◷","Дебиторка",money(debtTotal()),"Только просрочено",RED,"kpi:debt"),weightMarginLeft());content.addView(a);spacer(8);
         LinearLayout b=h();b.addView(kpiCard("▥","План поступлений",money(plannedReceiptsTotal()),"Будущие этапы ТЗ",BLUE,"kpi:plan_income"),weight());b.addView(kpiCard("◔","Осталось получить",money(remainingReceiptsTotal()),"По договорам",ORANGE,"kpi:remaining"),weightMarginLeft());content.addView(b);
         sectionTitle("Фильтры",analyticsFilter+"⌄",null);LinearLayout filters=h();for(String f:new String[]{"Все объекты","В работе","Запланирован","Завершён","По инженеру","По менеджеру","По монтажнику","По финансам"}){boolean sel=f.equals(analyticsFilter);String label=f.equals("Запланирован")?"Запланированы":f.equals("Завершён")?"Завершены":f;TextView chip=pillText(label,9,sel?WHITE:INK,sel?GREEN:softBg());chip.setPadding(dp(10),dp(7),dp(10),dp(7));chip.setOnClickListener(v->{analyticsFilter=f;showAnalytics();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(34));p.setMargins(0,0,dp(5),0);filters.addView(chip,p);}HorizontalScrollView hv=new HorizontalScrollView(this);hv.setHorizontalScrollBarEnabled(false);hv.addView(filters);content.addView(hv);
-        sectionTitle("Аналитика по объектам",objects.size()+" объектов ›",null);int shown=0;for(ObjectItem o:objects){if(analyticsObjectMatches(o)){long plan=Math.max(0,o.contract-o.paid);long debt=o.status.equals("Завершён")&&plan>0?plan:0;long future=debt>0?0:plan;View card=analyticsObject(o.address,o.status,o.contract,o.paid,future,debt,o.progress,debt>0?"Просрочено":"Следующий этап по ТЗ");card.setOnClickListener(v->navigate("object:"+o.id));content.addView(card);shown++;}}if(shown==0)content.addView(emptyState("Нет объектов","Измените фильтр."));
-        sectionTitle("Требует внимания",null,null);content.addView(attention("!","Просрочен платёж — 200 000 ₽","Королёв, ул. Полевая, 7",RED,"kpi:debt"));content.addView(attention("◷","Через 2 дня ожидается 180 000 ₽","Мытищи, ул. Центральная, 8",ORANGE,"kpi:plan_income"));
+        sectionTitle("Аналитика по объектам",objects.size()+" объектов ›",null);int shown=0;for(ObjectItem o:objects){if(analyticsObjectMatches(o)){long debt=objectDebt(o.id);long future=objectPlanned(o.id);String next=nextPaymentText(o.id);View card=analyticsObject(o.address,o.status,o.contract,o.paid,future,debt,o.progress,next);card.setOnClickListener(v->navigate("object:"+o.id));content.addView(card);shown++;}}if(shown==0)content.addView(emptyState("Нет объектов","Измените фильтр."));
+        sectionTitle("Требует внимания",null,null);if(liveAttention.isEmpty())content.addView(attention("✓","Критичных событий нет","По текущей синхронизации",GREEN,null));else for(int i=0;i<Math.min(5,liveAttention.size());i++){AttentionItem it=liveAttention.get(i);content.addView(attention("!",it.title,it.subtitle,"red".equals(it.severity)?RED:ORANGE,it.target));}
     }
 
     private View analyticsObject(String addr,String status,long contract,long paid,long plan,long debt,int progress,String next){
@@ -752,9 +930,9 @@ public class MainActivity extends Activity {
 
     private void showManagers(){
         beginScreen(true);appBar("Менеджеры","Интерфейс подготовлен, функционал пока не активирован");periodSelector();
-        LinearLayout r=h();r.addView(kpiCard("●●","Лиды",String.valueOf((int)periodValue(42)),"Демо-показатель",BLUE,null),weight());r.addView(kpiCard("▰","Замеры",String.valueOf((int)periodValue(20)),"Демо-показатель",ORANGE,null),weightMarginLeft());content.addView(r);
+        LinearLayout r=h();r.addView(kpiCard("●●","Лиды",String.valueOf(liveKpiInt("leads",0)),"Из рабочей таблицы",BLUE,null),weight());r.addView(kpiCard("▰","Замеры",String.valueOf(liveKpiInt("surveys",surveys.size())),"Из рабочей таблицы",ORANGE,null),weightMarginLeft());content.addView(r);
         spacer(8);
-        LinearLayout r2=h();r2.addView(kpiCard("▣","Договоры",String.valueOf(contractCountForPeriod()),"Демо-показатель",GREEN,null),weight());r2.addView(kpiCard("↪","Конверсия","26%","Замер → объект",ORANGE,null),weightMarginLeft());content.addView(r2);
+        LinearLayout r2=h();r2.addView(kpiCard("▣","Договоры",String.valueOf(contractCountForPeriod()),"По объектам периода",GREEN,null),weight());r2.addView(kpiCard("↪","Конверсия","26%","Замер → объект",ORANGE,null),weightMarginLeft());content.addView(r2);
         sectionTitle("Планируемый функционал",null,null);
         content.addView(infoRow("Лиды","Клиенты · источники · статусы · CPL"));
         content.addView(infoRow("Замеры","Назначено · проведено · результат"));
@@ -766,22 +944,27 @@ public class MainActivity extends Activity {
     // ---------- calendar / settings ----------
 
     private void showCalendar(){
-        beginScreen(true);appBar("Календарь","План работ и загрузка монтажников");sectionTitle("Сентябрь 2026","День "+selectedCalendarDay,null);
-        LinearLayout days=h();for(int d=8;d<=14;d++){final int day=d;boolean sel=d==selectedCalendarDay;TextView t=pillText(String.valueOf(d),12,sel?WHITE:INK,sel?GREEN:softBg());t.setGravity(Gravity.CENTER);t.setOnClickListener(v->{selectedCalendarDay=day;saveDemoState();showCalendar();});days.addView(t,new LinearLayout.LayoutParams(0,dp(42),1));}content.addView(days);
-        sectionTitle("Загрузка по людям","Нажмите на строку",null);
-        View s1=scheduleRow("Алексей Смирнов",selectedCalendarDay==12?"Мытищи, ул. Лесная, 12":"Пушкино, СНТ Берёзка","В работе",GREEN);s1.setOnClickListener(v->navigate("installer:INS-001"));content.addView(s1);
-        View s2=scheduleRow("Илья Орлов",selectedCalendarDay==13?"Свободен":"Мытищи, ул. Лесная, 12",selectedCalendarDay==13?"Свободен":"В работе",selectedCalendarDay==13?ORANGE:GREEN);s2.setOnClickListener(v->navigate("installer:INS-002"));content.addView(s2);
-        View s3=scheduleRow("Сергей Плотников","Выходной","Свободен",ORANGE);s3.setOnClickListener(v->navigate("installer:INS-003"));content.addView(s3);
-        View s4=scheduleRow("Андрей Крылов","Королёв, ул. Полевая, 7","Запланирован",BLUE);s4.setOnClickListener(v->navigate("installer:INS-004"));content.addView(s4);
-        content.addView(attention("!","Контроль конфликта","Двойное назначение одного монтажника на одну дату будет заблокировано.",RED,"kpi:calendar_conflict"));
+        beginScreen(true);appBar("Календарь","План работ и загрузка монтажников");
+        sectionTitle("Производственный календарь","Из ТЗ и назначений",null);
+        if(liveCalendar.isEmpty()){
+            content.addView(emptyState("Календарь пока пуст","Он заполняется автоматически после сохранения ТЗ с назначенными монтажниками."));
+        }else{
+            for(CalendarItem c:liveCalendar){
+                ObjectItem o=findObject(c.objectId);String addr=o==null?c.objectId:o.address;
+                String dates=!c.windowFrom.isEmpty()?(c.windowFrom+" — "+c.windowTo):(c.planStart+" — "+c.planEnd);
+                View row=scheduleRow(c.installer,addr+(dates.trim().isEmpty()?"":" · "+dates),c.status,"В работе".equals(c.status)?GREEN:BLUE);
+                row.setOnClickListener(v->{if(o!=null)navigate("object:"+o.id);});content.addView(row);
+            }
+        }
+        content.addView(attention("!","Контроль конфликтов","Перед запуском объекта ТЗ проверяет назначения; календарь формируется по Installer_ID.",ORANGE,"objects"));
     }
 
     private void showSettings(){
         beginScreen(true);appBar("Настройки","Профиль, справочники, приложение");
-        LinearLayout profile=h();TextView a=pillText(initials(leaderName),16,WHITE,GREEN_DARK);a.setGravity(Gravity.CENTER);profile.addView(a,new LinearLayout.LayoutParams(dp(54),dp(54)));LinearLayout p=v();p.setPadding(dp(10),0,0,0);p.addView(tv(leaderName,15,INK,Typeface.BOLD));p.addView(tv(demoRole+" · ADMIN",11,MUTED,Typeface.NORMAL));profile.addView(p,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));profile.setOnClickListener(v->editProfileDialog());content.addView(profile);
+        LinearLayout profile=h();TextView a=pillText(initials(leaderName),16,WHITE,GREEN_DARK);a.setGravity(Gravity.CENTER);profile.addView(a,new LinearLayout.LayoutParams(dp(54),dp(54)));LinearLayout p=v();p.setPadding(dp(10),0,0,0);p.addView(tv(leaderName,15,INK,Typeface.BOLD));p.addView(tv(demoRole+("Руководитель".equals(demoRole)?" · ADMIN":""),11,MUTED,Typeface.NORMAL));profile.addView(p,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));profile.setOnClickListener(v->editProfileDialog());content.addView(profile);
         sectionTitle("Интерфейс",null,null);content.addView(clickableInfoRow("Профиль","Изменить имя / фото",v->editProfileDialog()));content.addView(clickableInfoRow("Тема",themeMode,v->themeDialog()));content.addView(clickableInfoRow("Демо роли",demoRole,v->roleDialog()));content.addView(clickableInfoRow("Уведомления","Объекты · ТЗ · платежи · отчёты",v->navigate("kpi:notifications")));
-        sectionTitle("Система",null,null);content.addView(clickableInfoRow("Справочники","Виды работ · статьи · статусы · причины",v->showDirectoriesDialog()));content.addView(clickableInfoRow("Пользователи и роли","Роль назначает руководитель",v->navigate("newEmployee")));content.addView(clickableInfoRow("Синхронизация","Последняя: демо · локальная база",v->showSyncDialog()));content.addView(infoRow("Версия","6.0.0-alpha6 · Full Demo"));content.addView(infoRow("Безопасная зона","Контент не заезжает под системные панели Android"));
-        spacer(10);Button sync=primary("Синхронизировать");sync.setOnClickListener(v->showSyncDialog());content.addView(sync);spacer(7);Button reset=primaryOutline("Сбросить демо-данные");reset.setOnClickListener(v->confirmReset());content.addView(reset);
+        sectionTitle("Система",null,null);content.addView(clickableInfoRow("Справочники","Виды работ · статьи · статусы · причины",v->showDirectoriesDialog()));content.addView(clickableInfoRow("Пользователи и роли","Роль назначает руководитель",v->navigate("newEmployee")));content.addView(clickableInfoRow("Синхронизация",lastSyncText,v->showSyncDialog()));content.addView(infoRow("Версия","6.1.0-alpha6.1 · Connected"));content.addView(infoRow("Безопасная зона","Контент не заезжает под системные панели Android"));
+        spacer(10);Button sync=primary("Синхронизировать сейчас");sync.setOnClickListener(v->syncNow(true));content.addView(sync);spacer(7);Button pair=primaryOutline(api!=null&&api.hasToken()?"Переподключить устройство":"Подключить к Google Sheets");pair.setOnClickListener(v->showPairingDialog());content.addView(pair);
     }
 
     // ---------- KPI drilldown ----------
@@ -795,21 +978,21 @@ public class MainActivity extends Activity {
             case "turnover_all":case "turnover_intermediate":case "turnover_closed":
                 for(MoneyTx t:txs)if(t.type.equals("INCOME") && turnoverMatches(key,t))content.addView(clickableInfoRow(t.sub,t.title+" · "+money(t.amount),v->openObjectByAddress(t.sub)));break;
             case "profit":
-                content.addView(infoRow("Оборот",money(actualTurnover())));content.addView(infoRow("Расходы",money(actualExpenses())));content.addView(infoRow("Операционная прибыль",money(Math.max(0,actualTurnover()-actualExpenses()))));content.addView(clickableInfoRow("Прибыль по закрытым объектам","Открыть объекты",v->navigate("objects")));break;
+                content.addView(infoRow("Оборот",money(actualTurnover())));content.addView(infoRow("Расходы",money(actualExpenses())));content.addView(infoRow("Операционная прибыль",money(actualTurnover()-actualExpenses())));content.addView(clickableInfoRow("Прибыль по закрытым объектам","Открыть объекты",v->navigate("objects")));break;
             case "planned_objects":
-                content.addView(infoRow("Запланированы / не подтверждены",String.valueOf(countStatus("Запланирован"))));content.addView(infoRow("Подтверждены клиентом",String.valueOf(countStatus("Подтверждён клиентом"))));for(ObjectItem o:objects)if(o.status.equals("Запланирован")||o.status.equals("Подтверждён клиентом"))content.addView(clickableInfoRow(o.address,o.status,v->navigate("object:"+o.id)));break;
+                content.addView(infoRow("Запланированы",String.valueOf(countStatus("Запланирован"))));content.addView(infoRow("Подтверждены",String.valueOf(countStatus("Подтверждён")+countStatus("Подтверждён клиентом"))));content.addView(infoRow("Готовы к монтажу",String.valueOf(countStatus("Готов к монтажу"))));for(ObjectItem o:objects)if(o.status.equals("Запланирован")||o.status.equals("Подтверждён")||o.status.equals("Подтверждён клиентом")||o.status.equals("Готов к монтажу"))content.addView(clickableInfoRow(o.address,o.status,v->navigate("object:"+o.id)));break;
             case "objects_work":
                 for(ObjectItem o:objects)if(o.status.equals("В работе"))content.addView(clickableInfoRow(o.address,o.progress+"% · "+o.installers,v->navigate("object:"+o.id)));break;
             case "plan_income":
-                content.addView(infoRow("14 сентября","600 000 ₽"));content.addView(clickableInfoRow("Мытищи, ул. Лесная, 12","350 000 ₽ · этап ТЗ",v->navigate("payments:OBJ-001")));content.addView(clickableInfoRow("Пушкино, СНТ Берёзка","250 000 ₽ · этап ТЗ",v->navigate("payments:OBJ-003")));content.addView(infoRow("16 сентября","420 000 ₽"));content.addView(infoRow("20 сентября","700 000 ₽"));break;
+                int fp=0;for(PaymentItem p:livePaymentPlan)if(p.remaining>0&&!"Просрочено".equals(p.status)){ObjectItem o=findObject(p.objectId);String a=o==null?p.objectId:o.address;content.addView(clickableInfoRow(p.date+" · "+a,p.stageName+" · "+money(p.remaining),v->navigate("payments:"+p.objectId)));fp++;}if(fp==0)content.addView(emptyState("Будущих этапов пока нет","Заполните график оплат в технических заданиях."));break;
             case "debt":
-                content.addView(attention("!","Королёв, ул. Полевая, 7","Просрочено 200 000 ₽ · 4 дня",RED,"payments:OBJ-002"));content.addView(infoRow("Правило","Дебиторка = только просроченный неоплаченный остаток этапов ТЗ."));break;
+                int fd=0;for(PaymentItem p:livePaymentPlan)if(p.remaining>0&&"Просрочено".equals(p.status)){ObjectItem o=findObject(p.objectId);String a=o==null?p.objectId:o.address;content.addView(attention("!",a,money(p.remaining)+" · просрочка "+p.overdue+" дн.",RED,"payments:"+p.objectId));fd++;}if(fd==0)content.addView(emptyState("Просроченной дебиторки нет","По заполненным этапам оплат просрочек не найдено."));content.addView(infoRow("Правило","Дебиторка = только просроченный неоплаченный остаток этапов ТЗ."));break;
             case "contracts":
                 content.addView(infoRow("Логика","Объекты в работе + завершённые в выбранном периоде"));for(ObjectItem o:objects)if(o.status.equals("В работе")||o.status.equals("Завершён")||o.status.equals("Закрыт 100%"))content.addView(clickableInfoRow(o.address,money(o.contract),v->navigate("object:"+o.id)));break;
             case "avg":
-                content.addView(infoRow("Общий средний чек",money(averageCheck())));content.addView(infoRow("Утепление","340 000 ₽"));content.addView(infoRow("Фасады","520 000 ₽"));content.addView(infoRow("Кровля","610 000 ₽"));content.addView(infoRow("Комплексное утепление","780 000 ₽"));sectionTitle("Утепление — детализация",null,null);for(String x:new String[]{"Пол — 210 000 ₽","Стены — 290 000 ₽","Перекрытие — 240 000 ₽","Кровля — 360 000 ₽","Стены + пол — 430 000 ₽","Крыша + стены — 510 000 ₽","Пол + стены + крыша — 690 000 ₽"})content.addView(infoRow("Направление",x));break;
-            case "leads":for(String x:new String[]{"Яндекс Директ — 18","Авито — 9","Telegram — 5","VK — 4","YouTube — 3","Рекомендации — 3"})content.addView(infoRow("Источник",x));content.addView(attention("!","Лиды сегодня не обновлены","Требуется ежедневное обновление SMM",ORANGE,null));break;
-            case "notifications":content.addView(attention("◷","Просроченный платёж","200 000 ₽ · Королёв",RED,"payments:OBJ-002"));content.addView(attention("▰","Замеры сегодня не обновлены","Проверить инженера",ORANGE,"surveys"));content.addView(attention("●","Лиды сегодня не обновлены","Проверить SMM",ORANGE,"kpi:leads"));content.addView(attention("▤","Подтверждённый объект без полного ТЗ","Ивантеевка",RED,"tech:OBJ-004"));break;
+                content.addView(infoRow("Общий средний чек",money(averageCheck())));Map<String,long[]> byType=new LinkedHashMap<>();for(ObjectItem o:objects)if(o.contract>0){long[] z=byType.computeIfAbsent(o.workType==null||o.workType.isEmpty()?"Не указан":o.workType,k->new long[2]);z[0]+=o.contract;z[1]++;}for(Map.Entry<String,long[]> e:byType.entrySet())content.addView(infoRow(e.getKey(),money(e.getValue()[0]/Math.max(1,e.getValue()[1]))));break;
+            case "leads":content.addView(infoRow("Лидов за период",String.valueOf(liveKpiInt("leads",0))));content.addView(infoRow("Источник","Детализация ведётся на листе «Лиды» и синхронизируется с приложением."));break;
+            case "notifications":if(liveAttention.isEmpty())content.addView(emptyState("Уведомлений нет","Критичных событий по текущим данным нет."));else for(AttentionItem a:liveAttention)content.addView(attention("!",a.title,a.subtitle,"red".equals(a.severity)?RED:ORANGE,a.target));break;
             case "expense_object":moneyDialog("EXPENSE");content.addView(infoRow("Действие","Форма расхода открыта"));break;
             default:content.addView(infoRow("Показатель",title));content.addView(clickableInfoRow("Открыть связанный раздел","Перейти",v->navigate(defaultTargetForKpi(key))));
         }
@@ -825,8 +1008,8 @@ public class MainActivity extends Activity {
         m.put("accountable","Подотчёт");m.put("notifications","Уведомления");return m.getOrDefault(k,k.replace('_',' '));
     }
     private String kpiValue(String k){
-        if(k.equals("turnover")||k.equals("turnover_all"))return money(actualTurnover());if(k.equals("turnover_intermediate"))return money(intermediateTurnover());if(k.equals("turnover_closed"))return money(closedTurnover());if(k.equals("profit"))return money(Math.max(0,actualTurnover()-actualExpenses()));if(k.equals("debt"))return money(debtTotal());
-        if(k.equals("plan_income"))return money(plannedReceiptsTotal());if(k.equals("remaining"))return money(remainingReceiptsTotal());if(k.equals("leads"))return "42";if(k.equals("contracts"))return String.valueOf(contractCountForPeriod());if(k.equals("avg"))return money(averageCheck());if(k.equals("planned_objects"))return String.valueOf(countStatus("Запланирован")+countStatus("Подтверждён клиентом"));if(k.equals("objects_work"))return String.valueOf(countStatus("В работе"));return "Подробнее";
+        if(k.equals("turnover")||k.equals("turnover_all"))return money(actualTurnover());if(k.equals("turnover_intermediate"))return money(intermediateTurnover());if(k.equals("turnover_closed"))return money(closedTurnover());if(k.equals("profit"))return money(actualTurnover()-actualExpenses());if(k.equals("debt"))return money(debtTotal());
+        if(k.equals("plan_income"))return money(plannedReceiptsTotal());if(k.equals("remaining"))return money(remainingReceiptsTotal());if(k.equals("leads"))return String.valueOf(liveKpiInt("leads",0));if(k.equals("contracts"))return String.valueOf(contractCountForPeriod());if(k.equals("avg"))return money(averageCheck());if(k.equals("planned_objects"))return String.valueOf(liveKpiInt("plannedObjects",countStatus("Запланирован")+countStatus("Подтверждён")+countStatus("Готов к монтажу")));if(k.equals("objects_work"))return String.valueOf(liveKpiInt("objectsInWork",countStatus("В работе")));return "Подробнее";
     }
 
     private ObjectItem findObject(String id){for(ObjectItem o:objects)if(o.id.equals(id))return o;return null;}
@@ -929,8 +1112,8 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Добавить").setItems(a,(d,w)->{switch(w){case 0:navigate("create");break;case 1:moneyDialog("INCOME");break;case 2:moneyDialog("EXPENSE");break;case 3:transferDialog();break;case 4:navigate("newEmployee");break;case 5:newSurveyDialog();break;}}).show();
     }
     private void showScreenMenu(){String[] a={"На главную","Обновить экран","Поделиться сводкой","О приложении"};new AlertDialog.Builder(this).setTitle("Меню").setItems(a,(d,w)->{if(w==0)navigate("main");else if(w==1)render();else if(w==2)shareSummary();else showAboutDialog();}).show();}
-    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Alpha 6 Full Demo\n\nНативное Android-приложение. Все разделы работают на локальных демо-данных. Google Sheets пока не подключена.").setPositiveButton("Понятно",null).show();}
-    private void shareSummary(){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,"Тёплая Компания — демо-сводка\nОборот: "+money(periodValue(1245000))+"\nПрибыль: "+money(periodValue(425000))+"\nОбъекты в работе: "+countStatus("В работе")+"\nДебиторка: 320 000 ₽");startActivity(Intent.createChooser(i,"Поделиться сводкой"));}
+    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Alpha 6.1 Connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
+    private void shareSummary(){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,"Тёплая Компания — сводка "+currentPeriod+"\nОборот: "+money(actualTurnover())+"\nПрибыль: "+money(liveKpi("profit",actualTurnover()-actualExpenses()))+"\nОбъекты в работе: "+liveKpiInt("objectsInWork",countStatus("В работе"))+"\nДебиторка: "+money(debtTotal()));startActivity(Intent.createChooser(i,"Поделиться сводкой"));}
 
     private int countStatus(String status){int n=0;for(ObjectItem o:objects)if(o.status.equals(status))n++;return n;}
     private int countInstallerStatus(String st){int n=0;for(InstallerItem i:installers)if(i.status.equals(st))n++;return n;}
@@ -948,25 +1131,120 @@ public class MainActivity extends Activity {
 
     private void dial(String phone){try{startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:"+phone)));}catch(Exception e){toast("Набор номера недоступен");}}
     private void openMap(String address){try{Intent i=new Intent(Intent.ACTION_VIEW,Uri.parse("geo:0,0?q="+Uri.encode(address)));startActivity(i);}catch(Exception e){toast("Карты не найдены");}}
-    private void changeObjectStatus(ObjectItem o){String[] st={"Подтверждён клиентом","Запланирован","В работе","Приостановлен","Завершён","Закрыт 100%"};new AlertDialog.Builder(this).setTitle("Статус объекта").setSingleChoiceItems(st,Arrays.asList(st).indexOf(o.status),(d,w)->{o.status=st[w];if(o.status.equals("Завершён")||o.status.equals("Закрыт 100%"))o.progress=100;saveDemoState();d.dismiss();showObjectDetail(o.id);}).show();}
+    private void changeObjectStatus(ObjectItem o){
+        String[] st={"Запланирован","Подтверждён","Готов к монтажу","В работе","Приостановлен","Работы завершены","Закрыт 100%","Отменён"};
+        new AlertDialog.Builder(this).setTitle("Статус объекта").setSingleChoiceItems(st,Arrays.asList(st).indexOf(o.status),(d,w)->{
+            d.dismiss();
+            if(api==null||!api.hasToken()){toast("Нет подключения к Google Sheets");return;}
+            try{
+                JSONObject b=new JSONObject();b.put("objectId",o.id);b.put("status",st[w]);b.put("expectedRevision",o.revision);
+                api.mutate("updateObjectStatus",b,new ApiClient.Callback(){
+                    public void onSuccess(JSONObject json){toast("Статус обновлён");syncNow(false);}
+                    public void onError(String error){showApiError(error);}
+                });
+            }catch(Exception ex){showApiError(ex.toString());}
+        }).show();
+    }
 
     private void showPayments(String objectId){
-        ObjectItem o=findObject(objectId);if(o==null){navigate("objects");return;}beginScreen(true);appBar("График платежей",o.address);long rem=Math.max(0,o.contract-o.paid);
-        content.addView(kpiCard("↓","Получено",money(o.paid),"Фактический оборот по объекту",GREEN,null));spacer(7);content.addView(kpiCard("◷","Осталось",money(rem),"По договору",ORANGE,null));
-        sectionTitle("Этапы оплат","Демо",null);TechTask t=techTasks.get(o.id);long p1=t==null?Math.min(rem,200000):t.pay1,p2=t==null?Math.min(Math.max(0,rem-p1),180000):t.pay2,p3=t==null?Math.max(0,rem-p1-p2):t.pay3;
-        content.addView(paymentRow(o,"25.09.2026",p1,false));content.addView(paymentRow(o,"27.09.2026",p2,false));content.addView(paymentRow(o,"30.09.2026",p3,false));
-        if(o.id.equals("OBJ-002"))content.addView(attention("!","Просрочено 200 000 ₽","4 дня · ответственный менеджер: "+o.manager,RED,null));
-    }
-    private View paymentRow(ObjectItem o,String date,long amount,boolean paid){LinearLayout r=h();r.setPadding(dp(10),dp(9),dp(10),dp(9));r.setBackground(round(cardBg(),14));LinearLayout x=v();x.addView(tv(date,11,INK,Typeface.BOLD));x.addView(tv(paid?"Оплачен":"Ожидается",9,paid?GREEN:MUTED,Typeface.NORMAL));r.addView(x,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));TextView m=tv(money(amount),12,INK,Typeface.BOLD);r.addView(m);if(!paid&&amount>0){TextView ok=pillText("+ Оплата",9,WHITE,GREEN);ok.setPadding(dp(8),dp(5),dp(8),dp(5));ok.setOnClickListener(v->{o.paid=Math.min(o.contract,o.paid+amount);txs.add(0,new MoneyTx("INCOME","Оплата этапа",o.address,amount));igorBalance+=amount;saveDemoState();toast("Платёж проведён");showPayments(o.id);});LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(34));op.setMargins(dp(8),0,0,0);r.addView(ok,op);}LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(6));r.setLayoutParams(p);return r;}
+        ObjectItem o=findObject(objectId);if(o==null){navigate("objects");return;}
+        beginScreen(true);appBar("График платежей",o.address);
+        content.addView(kpiCard("↓","Получено",money(o.paid),"Фактический приход по объекту",GREEN,null));spacer(7);
+        content.addView(kpiCard("◷","Осталось по договору",money(Math.max(0,o.contract-o.paid)),"Договор − фактические поступления",ORANGE,null));
 
-    private void showPhotoReports(String objectId){ObjectItem o=findObject(objectId);if(o==null){navigate("objects");return;}beginScreen(true);appBar("Фотоотчёты",o.address);sectionTitle("День 1","Фото ДО · процесс · ПОСЛЕ",null);addPhotoDemo("ДО","Фасад до начала работ");addPhotoDemo("ПРОЦЕСС","Монтаж каркаса, 85 м²");addPhotoDemo("ПОСЛЕ","Участок завершён и проверен");sectionTitle("Отчёт монтажника",null,null);content.addView(infoRow("Выполнено","Каркас 85 м² · мембрана 80 м²"));content.addView(infoRow("Время","08:12 — 18:05"));content.addView(infoRow("Комментарий","Работы идут по плану"));Button add=primaryOutline("+ Добавить демо-фотоотчёт");add.setOnClickListener(v->toast("Фотоотчёт добавлен в демо-ленту"));content.addView(add);}
-    private void addPhotoDemo(String stage,String caption){LinearLayout c=h();c.setPadding(dp(10),dp(10),dp(10),dp(10));c.setBackground(round(softBg(),14));TextView ph=pillText("▧",26,BLUE,light(BLUE));ph.setGravity(Gravity.CENTER);c.addView(ph,new LinearLayout.LayoutParams(dp(66),dp(66)));LinearLayout t=v();t.setPadding(dp(10),0,0,0);t.addView(tv(stage,11,BLUE,Typeface.BOLD));t.addView(tv(caption,11,INK,Typeface.NORMAL));t.addView(tv("12.09.2026 · монтажник",9,MUTED,Typeface.NORMAL));c.addView(t,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(7));content.addView(c,p);}
+        sectionTitle("Этапы оплат","Из технического задания",null);
+        int shown=0;
+        for(PaymentItem p:livePaymentPlan){
+            if(!objectId.equals(p.objectId))continue;
+            content.addView(livePaymentRow(o,p));shown++;
+        }
+        if(shown==0){
+            content.addView(emptyState("График оплат не создан","Откройте техническое задание и добавьте даты и суммы этапов."));
+            Button tz=primaryOutline("Открыть ТЗ");tz.setOnClickListener(v->navigate("tech:"+objectId));content.addView(tz);
+        }
+    }
+
+    private View livePaymentRow(ObjectItem o,PaymentItem p){
+        LinearLayout r=h();r.setPadding(dp(10),dp(9),dp(10),dp(9));r.setBackground(round(cardBg(),14));
+        LinearLayout x=v();x.addView(tv(p.date+" · "+p.stageName,11,INK,Typeface.BOLD));
+        int tint="Просрочено".equals(p.status)?RED:"Оплачено".equals(p.status)?GREEN:MUTED;
+        x.addView(tv(p.status+(p.overdue>0?" · "+p.overdue+" дн.":""),9,tint,Typeface.NORMAL));
+        x.addView(tv("План: "+money(p.planned)+" · Получено: "+money(p.paid),9,MUTED,Typeface.NORMAL));
+        r.addView(x,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
+        TextView m=tv(money(p.remaining),12,tint,Typeface.BOLD);r.addView(m);
+        if(p.remaining>0){
+            TextView ok=pillText("+ Оплата",9,WHITE,GREEN);ok.setPadding(dp(8),dp(5),dp(8),dp(5));
+            ok.setOnClickListener(v->{
+                if(api==null||!api.hasToken()){showPairingDialog();return;}
+                EditText amt=edit("Сумма");amt.setInputType(InputType.TYPE_CLASS_NUMBER);amt.setText(String.valueOf(p.remaining));
+                new AlertDialog.Builder(this).setTitle("Оплата этапа").setMessage(p.stageName+" · "+p.date).setView(amt)
+                        .setPositiveButton("Провести",(d,w)->{
+                            long value=parseLong(amt.getText().toString());if(value<=0)return;
+                            try{
+                                JSONObject b=new JSONObject();b.put("amount",value);b.put("objectId",o.id);b.put("paymentPlanId",p.id);
+                                b.put("paymentKind","Промежуточный платёж");b.put("operation","Приход");
+                                b.put("recipient","U-KONSTANTIN".equals(api.getUserId())?"Константин":"Игорь");
+                                b.put("comment","Оплата по "+p.stageName);
+                                api.mutate("addIncome",b,new ApiClient.Callback(){
+                                    public void onSuccess(JSONObject json){toast("Платёж записан");syncNow(false);}
+                                    public void onError(String error){showApiError(error);}
+                                });
+                            }catch(Exception ex){showApiError(ex.toString());}
+                        }).setNegativeButton("Отмена",null).show();
+            });
+            LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(34));op.setMargins(dp(8),0,0,0);r.addView(ok,op);
+        }
+        LinearLayout.LayoutParams pms=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);pms.setMargins(0,0,0,dp(6));r.setLayoutParams(pms);return r;
+    }
+
+    private void showPhotoReports(String objectId){
+        ObjectItem o=findObject(objectId);if(o==null){navigate("objects");return;}
+        beginScreen(true);appBar("Фотоотчёты",o.address);
+        sectionTitle("Лента объекта","Google Drive",null);
+        int shown=0;
+        for(MediaItem m:liveMedia){
+            if(!objectId.equals(m.objectId))continue;
+            LinearLayout c=h();c.setPadding(dp(10),dp(10),dp(10),dp(10));c.setBackground(round(softBg(),14));
+            TextView ph=pillText("▧",26,BLUE,light(BLUE));ph.setGravity(Gravity.CENTER);c.addView(ph,new LinearLayout.LayoutParams(dp(66),dp(66)));
+            LinearLayout t=v();t.setPadding(dp(10),0,0,0);t.addView(tv(m.stage.isEmpty()?m.type:m.stage,11,BLUE,Typeface.BOLD));
+            t.addView(tv(m.comment.isEmpty()?"Фото объекта":m.comment,11,INK,Typeface.NORMAL));t.addView(tv(m.date,9,MUTED,Typeface.NORMAL));
+            c.addView(t,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
+            c.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(m.url)));}catch(Exception e){toast("Не удалось открыть файл");}});
+            LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(7));content.addView(c,p);shown++;
+        }
+        if(shown==0)content.addView(emptyState("Фотоотчётов пока нет","Монтажники или инженер могут добавить фотографии к объекту."));
+        Button add=primaryOutline("+ Добавить фото");add.setOnClickListener(v->pickMedia(objectId));content.addView(add);
+    }
+
+    private void pickMedia(String objectId){
+        pendingMediaObjectId=objectId;
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(i,REQ_PICK_MEDIA);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode!=REQ_PICK_MEDIA||resultCode!=RESULT_OK||data==null||data.getData()==null||pendingMediaObjectId==null)return;
+        if(api==null||!api.hasToken()){showPairingDialog();return;}
+        Uri uri=data.getData();
+        try(InputStream is=getContentResolver().openInputStream(uri);ByteArrayOutputStream bos=new ByteArrayOutputStream()){
+            byte[] buf=new byte[8192];int n;while((n=is.read(buf))>0){bos.write(buf,0,n);if(bos.size()>6*1024*1024){toast("Фото больше 6 МБ");return;}}
+            String b64=Base64.encodeToString(bos.toByteArray(),Base64.NO_WRAP);
+            JSONObject b=new JSONObject();b.put("objectId",pendingMediaObjectId);b.put("base64",b64);b.put("mimeType",getContentResolver().getType(uri));
+            b.put("fileName","TK-"+pendingMediaObjectId+"-"+System.currentTimeMillis()+".jpg");b.put("mediaType","Фото");b.put("stage","ПРОЦЕСС");b.put("comment","Загружено из приложения");
+            api.mutate("uploadMedia",b,new ApiClient.Callback(){
+                public void onSuccess(JSONObject json){toast("Фото загружено в Google Drive");syncNow(false);}
+                public void onError(String error){showApiError(error);}
+            });
+        }catch(Exception e){showApiError(e.toString());}
+    }
 
     private void installerPaymentDialog(InstallerItem i){EditText amt=edit("Сумма аванса / выплаты");amt.setInputType(InputType.TYPE_CLASS_NUMBER);new AlertDialog.Builder(this).setTitle(i.name).setView(amt).setPositiveButton("Выдать",(d,w)->{long v=parseLong(amt.getText().toString());if(v>0){i.paid+=v;igorBalance-=v;txs.add(0,new MoneyTx("EXPENSE","Выплата монтажнику",i.name,v));saveDemoState();showInstallerDetail(i.id);}}).setNegativeButton("Отмена",null).show();}
     private void showNewInstallerDialog(){EditText name=edit("ФИО монтажника");new AlertDialog.Builder(this).setTitle("Новый монтажник").setView(name).setPositiveButton("Добавить",(d,w)->{String n=name.getText().toString().trim();if(!n.isEmpty()){installers.add(new InstallerItem("INS-"+(installers.size()+1),n,0,0,0,0,0,0,"Не выдавалась","Свободен"));saveDemoState();showInstallers();}}).setNegativeButton("Отмена",null).show();}
 
     private boolean financeMatches(MoneyTx t){if(financeFilter.equals("Все"))return true;if(financeFilter.equals("Приходы"))return t.type.equals("INCOME");if(financeFilter.equals("Расходы"))return t.type.equals("EXPENSE");if(financeFilter.equals("Переводы"))return t.type.equals("TRANSFER");if(financeFilter.equals("Маркетинг"))return t.sub.contains("Маркетинг")||t.title.contains("Директ")||t.title.contains("Реклама");if(financeFilter.equals("Монтажники"))return t.sub.contains("монтаж")||findInstallerByName(t.sub)!=null;return !t.sub.equals("Без привязки");}
-    private boolean analyticsObjectMatches(ObjectItem o){if(analyticsFilter.equals("Все объекты")||analyticsFilter.equals("По инженеру")||analyticsFilter.equals("По менеджеру"))return true;return o.status.equals(analyticsFilter);}
+    private boolean analyticsObjectMatches(ObjectItem o){if(analyticsFilter.equals("Все объекты")||analyticsFilter.startsWith("По "))return true;return o.status.equals(analyticsFilter);}
 
     private InstallerItem findInstallerByName(String n){for(InstallerItem i:installers)if(i.name.equals(n))return i;return null;}
     private SurveyItem findSurvey(String id){for(SurveyItem s:surveys)if(s.id.equals(id))return s;return null;}
@@ -975,14 +1253,29 @@ public class MainActivity extends Activity {
 
     private View surveyCard(SurveyItem x){LinearLayout c=v();c.setPadding(dp(10),dp(9),dp(10),dp(9));c.setBackground(round(cardBg(),14));LinearLayout top=h();LinearLayout txt=v();txt.addView(tv(x.client,12,INK,Typeface.BOLD));txt.addView(tv(x.phone+" · замер "+x.date,9,MUTED,Typeface.NORMAL));top.addView(txt,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));top.addView(statusBadge(x.converted?"Переведён в объект":x.daysSinceContact>21?"Без касания 21+":x.daysSinceContact>14?"Без движения 14+":"В работе"));c.addView(top);c.addView(tv("Потенциал: "+money(x.potential)+" · последнее касание "+x.daysSinceContact+" дн. назад",9,MUTED,Typeface.NORMAL));c.setOnClickListener(v->navigate("survey:"+x.id));LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(6));c.setLayoutParams(p);return c;}
     private void showSurveyDetail(String id){SurveyItem x=findSurvey(id);if(x==null){navigate("surveys");return;}beginScreen(true);appBar("Замер",x.client);content.addView(infoRow("Телефон",x.phone));content.addView(infoRow("Дата замера",x.date));content.addView(infoRow("Потенциал договора",money(x.potential)));content.addView(infoRow("Последнее касание",x.daysSinceContact+" дней назад"));Button call=primaryOutline("Позвонить клиенту");call.setOnClickListener(v->{x.daysSinceContact=0;saveDemoState();dial(x.phone);});content.addView(call);spacer(7);Button conv=primary(x.converted?"Уже переведён в объект":"Перевести замер в объект");conv.setEnabled(!x.converted);conv.setOnClickListener(v->convertSurvey(x));content.addView(conv);}
-    private void convertSurvey(SurveyItem x){String oid="OBJ-"+String.format(Locale.US,"%03d",objects.size()+1);ObjectItem o=new ObjectItem(oid,"Адрес из замера — уточнить",x.client,"Комплексное утепление","Подтверждён клиентом",0,x.potential,0,"Константин","Игорь Игоревич","Не назначены");objects.add(0,o);x.converted=true;saveDemoState();toast("Замер переведён в объект");navigate("object:"+oid);}
-    private void newSurveyDialog(){LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));new AlertDialog.Builder(this).setTitle("Новый замер").setView(f).setPositiveButton("Добавить",(d,w)->{if(!n.getText().toString().trim().isEmpty()){surveys.add(0,new SurveyItem("Z-"+(100+surveys.size()+1),n.getText().toString(),ph.getText().toString(),"12.09.2026",0,300000,false));saveDemoState();navigate("surveys");}}).setNegativeButton("Отмена",null).show();}
+    private void convertSurvey(SurveyItem x){
+        if(api==null||!api.hasToken()){showPairingDialog();return;}
+        try{JSONObject b=new JSONObject();b.put("surveyId",x.id);api.mutate("convertSurveyToObject",b,new ApiClient.Callback(){
+            public void onSuccess(JSONObject json){x.converted=true;toast("Замер переведён в объект");syncNow(false);String oid=json.optString("objectId");if(!oid.isEmpty())navigate("object:"+oid);}
+            public void onError(String error){showApiError(error);}
+        });}catch(Exception e){showApiError(e.toString());}
+    }
+    private void newSurveyDialog(){
+        LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText ad=edit("Адрес");EditText wt=edit("Вид работ");
+        f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Адрес",ad));f.addView(labelWrap("Вид работ",wt));
+        new AlertDialog.Builder(this).setTitle("Новый замер").setView(f).setPositiveButton("Добавить",(d,w)->{
+            if(n.getText().toString().trim().isEmpty())return;if(api==null||!api.hasToken()){showPairingDialog();return;}
+            try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("address",ad.getText().toString().trim());b.put("workType",wt.getText().toString().trim());b.put("date",LocalDate.now().toString());
+                api.mutate("addSurvey",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Замер записан в таблицу");syncNow(false);navigate("surveys");}public void onError(String error){showApiError(error);}});
+            }catch(Exception e){showApiError(e.toString());}
+        }).setNegativeButton("Отмена",null).show();
+    }
 
     private void showEngineerDetail(String id){EngineerItem e=findEngineer(id);if(e==null){navigate("engineers");return;}beginScreen(true);appBar(e.name,"Инженер");content.addView(infoRow("Активные объекты",String.valueOf(e.activeObjects)));content.addView(infoRow("Запланированные",String.valueOf(e.planned)));content.addView(infoRow("Просрочки",String.valueOf(e.overdue)));content.addView(infoRow("Без отчёта",String.valueOf(e.noReport)));sectionTitle("Объекты инженера",null,null);for(ObjectItem o:objects)if(o.engineer.equals(e.name))content.addView(clickableInfoRow(o.address,o.status,v->navigate("object:"+o.id)));Button open=primary("Создать/открыть ТЗ");open.setOnClickListener(v->navigate("objects"));content.addView(open);}
     private void showManagerDetail(String id){ManagerItem m=findManager(id);if(m==null){navigate("managers");return;}beginScreen(true);appBar(m.name,"Менеджер");content.addView(infoRow("Лиды",String.valueOf(m.leads)));content.addView(infoRow("Замеры",String.valueOf(m.surveys)));content.addView(infoRow("Договоры",String.valueOf(m.contracts)));content.addView(infoRow("Монтажи",String.valueOf(m.installations)));content.addView(infoRow("Конверсия лид → договор",m.leads==0?"0%":(m.contracts*100/m.leads)+"%"));Button lead=primaryOutline("+ Новая заявка");lead.setOnClickListener(v->newLeadDialog());content.addView(lead);}
     private void showNewEngineerDialog(){EditText n=edit("Имя инженера");new AlertDialog.Builder(this).setTitle("Добавить инженера").setView(n).setPositiveButton("Добавить",(d,w)->{if(!n.getText().toString().trim().isEmpty()){engineers.add(new EngineerItem("ENG-"+(engineers.size()+1),n.getText().toString(),0,0,0,0));saveDemoState();showEngineers();}}).setNegativeButton("Отмена",null).show();}
     private void showNewManagerDialog(){EditText n=edit("Имя менеджера");new AlertDialog.Builder(this).setTitle("Добавить менеджера").setView(n).setPositiveButton("Добавить",(d,w)->{if(!n.getText().toString().trim().isEmpty()){managers.add(new ManagerItem("MGR-"+(managers.size()+1),n.getText().toString(),0,0,0,0));saveDemoState();showManagers();}}).setNegativeButton("Отмена",null).show();}
-    private void newLeadDialog(){EditText n=edit("Клиент / телефон");new AlertDialog.Builder(this).setTitle("Новая заявка").setView(n).setPositiveButton("Сохранить",(d,w)->{if(!managers.isEmpty())managers.get(0).leads++;saveDemoState();toast("Заявка добавлена в демо-воронку");}).setNegativeButton("Отмена",null).show();}
+    private void newLeadDialog(){LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText src=edit("Источник");f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Источник",src));new AlertDialog.Builder(this).setTitle("Новая заявка").setView(f).setPositiveButton("Сохранить",(d,w)->{if(api==null||!api.hasToken()){showPairingDialog();return;}try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("source",src.getText().toString().trim());b.put("date",LocalDate.now().toString());api.mutate("addLead",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Лид записан в таблицу");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError(e.toString());}}).setNegativeButton("Отмена",null).show();}
 
     private void showNewEmployee(){beginScreen(true);appBar("Новый сотрудник","Руководитель назначает роль");final EditText n=field("ФИО *","Новый сотрудник");final EditText phone=field("Телефон","+7 900 000-00-00");final EditText role=choiceField("Роль","Монтажник",new String[]{"Монтажник","Инженер","Менеджер"});Button save=primary("Создать сотрудника");save.setOnClickListener(v->{String name=n.getText().toString().trim();if(name.isEmpty())return;if(role.getText().toString().equals("Монтажник"))installers.add(new InstallerItem("INS-"+(installers.size()+1),name,0,0,0,0,0,0,"Не выдавалась","Свободен"));else if(role.getText().toString().equals("Инженер"))engineers.add(new EngineerItem("ENG-"+(engineers.size()+1),name,0,0,0,0));else managers.add(new ManagerItem("MGR-"+(managers.size()+1),name,0,0,0,0));saveDemoState();toast("Сотрудник создан");navigate("settings");});content.addView(save);}
 
@@ -997,18 +1290,250 @@ public class MainActivity extends Activity {
     private String defaultTargetForKpi(String key){if(key.contains("installer")||key.contains("payroll")||key.contains("accrued"))return "installers";if(key.contains("survey"))return "surveys";if(key.contains("object")||key.contains("contract"))return "objects";if(key.contains("expense")||key.contains("balance")||key.contains("accountable"))return "finance";return "analytics";}
     private String kpiValueExtended(String key){return kpiValue(key);}
 
-    private long actualTurnover(){long v=0;for(MoneyTx t:txs)if("INCOME".equals(t.type))v+=t.amount;return v;}
-    private long actualExpenses(){long v=0;for(MoneyTx t:txs)if("EXPENSE".equals(t.type))v+=t.amount;return v;}
-    private long remainingReceiptsTotal(){long v=0;for(ObjectItem o:objects)if(!o.status.equals("Закрыт 100%"))v+=Math.max(0,o.contract-o.paid);return v;}
-    private long plannedReceiptsTotal(){long remaining=remainingReceiptsTotal();long debt=debtTotal();return Math.max(0,remaining-debt);}
-    private long debtTotal(){return 200000L;}
-    private int contractCountForPeriod(){int n=0;for(ObjectItem o:objects)if(o.status.equals("В работе")||o.status.equals("Завершён")||o.status.equals("Закрыт 100%"))n++;return n;}
-    private long averageCheck(){long sum=0;int n=0;for(ObjectItem o:objects)if(o.contract>0){sum+=o.contract;n++;}return n==0?0:sum/n;}
-    private long intermediateTurnover(){long v=0;for(MoneyTx t:txs)if("INCOME".equals(t.type)&&t.title.contains("Промежуточ"))v+=t.amount;return v;}
-    private long closedTurnover(){long v=0;for(MoneyTx t:txs)if("INCOME".equals(t.type)&&t.title.contains("Финальный"))v+=t.amount;return v;}
+    private long objectDebt(String objectId){long v=0;for(PaymentItem p:livePaymentPlan)if(objectId.equals(p.objectId)&&"Просрочено".equals(p.status))v+=p.remaining;return v;}
+    private long objectPlanned(String objectId){long v=0;for(PaymentItem p:livePaymentPlan)if(objectId.equals(p.objectId)&&!"Просрочено".equals(p.status)&&!"Оплачено".equals(p.status))v+=p.remaining;return v;}
+    private String nextPaymentText(String objectId){for(PaymentItem p:livePaymentPlan)if(objectId.equals(p.objectId)&&p.remaining>0)return ("Просрочено".equals(p.status)?"Просрочено: ":"")+money(p.remaining)+" · "+p.date;return "Нет неоплаченных этапов";}
+    private long liveKpi(String key,long fallback){return liveSyncOk&&liveKpis.containsKey(key)?liveKpis.get(key):fallback;}
+    private int liveKpiInt(String key,int fallback){return (int)liveKpi(key,fallback);}
+    private long actualTurnover(){long v=0;for(MoneyTx t:txs)if("INCOME".equals(t.type))v+=t.amount;return liveKpi("turnover",v);}
+    private long actualExpenses(){long v=0;for(MoneyTx t:txs)if("EXPENSE".equals(t.type))v+=t.amount;return liveKpi("expenses",v);}
+    private long remainingReceiptsTotal(){long v=0;for(ObjectItem o:objects)if(!o.status.equals("Закрыт 100%")&&!o.status.equals("Отменён"))v+=Math.max(0,o.contract-o.paid);return liveKpi("remainingToReceive",v);}
+    private long plannedReceiptsTotal(){return liveKpi("plannedReceipts",0);}
+    private long debtTotal(){return liveKpi("debt",0);}
+    private int contractCountForPeriod(){return liveKpiInt("contracts",0);}
+    private long averageCheck(){return liveKpi("averageCheck",0);}
+    private long intermediateTurnover(){return liveKpi("turnoverIntermediate",0);}
+    private long closedTurnover(){return liveKpi("turnoverFinal",0);}
     private boolean turnoverMatches(String key,MoneyTx t){if(key.equals("turnover_all"))return true;if(key.equals("turnover_intermediate"))return t.title.contains("Промежуточ");if(key.equals("turnover_closed"))return t.title.contains("Финальный");return false;}
     private void openObjectByAddress(String address){for(ObjectItem o:objects)if(address.contains(o.address)||o.address.contains(address)){navigate("object:"+o.id);return;}navigate("finance");}
-    private void showSyncDialog(){new AlertDialog.Builder(this).setTitle("Синхронизация").setMessage("ДЕМО-РЕЖИМ\n\nСейчас данные сохраняются локально на телефоне. Контракт синхронизации уже зафиксирован: Приложение ⇄ Google Apps Script API ⇄ Google Sheets.\n\nПри подключении кнопка будет отправлять локальные изменения, получать изменения таблицы и показывать время последней успешной синхронизации.").setPositiveButton("Демо-синхронизация",(d,w)->toast("Демо: данные синхронизированы")).setNegativeButton("Закрыть",null).show();}
+    private void showSyncDialog(){
+        String state=liveSyncOk?"Подключено к Google Sheets":"Нет подтверждённой синхронизации";
+        String who=api!=null&&api.hasToken()?api.getUserName()+" · "+api.getRole():"Устройство не связано";
+        new AlertDialog.Builder(this).setTitle("Синхронизация")
+                .setMessage(state+"\n"+who+"\n\n"+lastSyncText+"\n\nСхема: Android ⇄ Apps Script API ⇄ Google Sheets 4.2")
+                .setPositiveButton("Синхронизировать",(d,w)->syncNow(true))
+                .setNeutralButton("Подключение",(d,w)->showPairingDialog())
+                .setNegativeButton("Закрыть",null).show();
+    }
+
+
+    private void showPairingDialog(){
+        if(api==null || !ApiClient.isConfigured()){
+            new AlertDialog.Builder(this).setTitle("API ещё не развёрнут")
+                    .setMessage("Код приложения подготовлен, но в сборку ещё не записан URL Google Apps Script /exec.")
+                    .setPositiveButton("Понятно",null).show();
+            return;
+        }
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
+        Spinner who=new Spinner(this);
+        who.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,
+                new String[]{"Игорь Филинов","Константин Шумкин"}));
+        form.addView(labelWrap("Пользователь",who));
+        EditText code=edit("Код подключения из листа «Пользователи API»");
+        form.addView(labelWrap("Код подключения",code));
+        new AlertDialog.Builder(this).setTitle("Подключить устройство к Google Sheets").setView(form)
+                .setPositiveButton("Подключить",(d,w)->{
+                    String userId=who.getSelectedItemPosition()==0?"U-IGOR":"U-KONSTANTIN";
+                    api.pair(userId,code.getText().toString().trim(),new ApiClient.Callback(){
+                        public void onSuccess(JSONObject json){
+                            toast("Устройство подключено: "+json.optString("name"));
+                            syncNow(true);
+                        }
+                        public void onError(String error){showApiError(error);}
+                    });
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void syncNow(boolean showMessage){
+        if(syncInProgress){if(showMessage)toast("Синхронизация уже выполняется");return;}
+        if(api==null || !ApiClient.isConfigured()){if(showMessage)showPairingDialog();return;}
+        if(!api.hasToken()){showPairingDialog();return;}
+        syncInProgress=true;
+        lastSyncText="Синхронизация…";
+        api.bootstrap(currentPeriod,new ApiClient.Callback(){
+            public void onSuccess(JSONObject json){
+                syncInProgress=false;
+                try{
+                    applyBootstrap(json);
+                    liveSyncOk=true;
+                    lastSyncText="Последняя синхронизация: "+json.optString("serverTime","сейчас");
+                    saveDemoState();
+                    render();
+                    if(showMessage)toast("Google Sheets синхронизирована");
+                }catch(Exception e){
+                    liveSyncOk=false;
+                    lastSyncText="Ошибка обработки данных";
+                    showApiError(e.toString());
+                }
+            }
+            public void onError(String error){
+                syncInProgress=false;
+                liveSyncOk=false;
+                lastSyncText="Ошибка синхронизации";
+                if(showMessage)showApiError(error);
+                else toast("Нет связи с Google Sheets");
+            }
+        });
+    }
+
+    private void applyBootstrap(JSONObject root) throws Exception{
+        JSONObject user=root.optJSONObject("user");
+        if(user!=null){
+            leaderName=user.optString("name",leaderName);
+            String role=user.optString("role","");
+            demoRole="OWNER".equals(role)?"Руководитель":"PARTNER".equals(role)?"Партнёр":role;
+        }
+
+        liveKpis.clear();
+        JSONObject k=root.optJSONObject("kpis");
+        if(k!=null){
+            String[] keys={"turnover","turnoverIntermediate","turnoverFinal","expenses","profit","objectsInWork","plannedObjects",
+                    "leads","surveys","contracts","averageCheck","debt","plannedReceipts","remainingToReceive",
+                    "accountableIgor","accountableKonstantin","totalAccountable"};
+            for(String key:keys) liveKpis.put(key,k.optLong(key,0));
+        }
+
+        JSONObject acc=root.optJSONObject("accountable");
+        if(acc!=null){
+            JSONObject i=acc.optJSONObject("Игорь"); if(i!=null)igorBalance=i.optLong("balance",igorBalance);
+            JSONObject c=acc.optJSONObject("Константин"); if(c!=null)konstantinBalance=c.optLong("balance",konstantinBalance);
+        }
+
+        objects.clear();
+        JSONArray oa=root.optJSONArray("objects");
+        if(oa!=null)for(int x=0;x<oa.length();x++){
+            JSONObject o=oa.getJSONObject(x);
+            String manager=o.optString("responsible","Игорь Игоревич");
+            objects.add(new ObjectItem(
+                    o.optString("id"),o.optString("address"),o.optString("client"),o.optString("phone"),
+                    o.optString("workType"),o.optString("status"),o.optInt("progress"),o.optLong("contract"),
+                    o.optLong("paid"),"Константин",manager,o.optString("brigade","Не назначены"),o.optInt("revision",1)
+            ));
+        }
+
+        Map<String,long[]> payroll=new HashMap<>();
+        JSONArray pa=root.optJSONArray("payroll");
+        if(pa!=null)for(int x=0;x<pa.length();x++){
+            JSONObject p=pa.optJSONObject(x);if(p==null)continue;
+            String id=p.optString("Installer_ID","");
+            long[] vals=payroll.computeIfAbsent(id,z->new long[2]);
+            vals[0]+=jsonLong(p,"Начислено"); vals[1]+=jsonLong(p,"Выплачено");
+        }
+
+        installers.clear(); engineers.clear();
+        JSONArray ea=root.optJSONArray("employees");
+        if(ea!=null)for(int x=0;x<ea.length();x++){
+            JSONObject e=ea.getJSONObject(x);
+            if(!"true".equalsIgnoreCase(e.optString("active","true")) && !"TRUE".equals(e.optString("active")))continue;
+            String role=e.optString("role","");
+            if(role.toLowerCase(Locale.ROOT).contains("монтаж")){
+                long[] pp=payroll.getOrDefault(e.optString("id"),new long[2]);
+                installers.add(new InstallerItem(e.optString("id"),e.optString("name"),0,0,0,pp[0],pp[1],0,"","Свободен"));
+            }
+            if(role.toLowerCase(Locale.ROOT).contains("инжен")||role.toLowerCase(Locale.ROOT).contains("партн")){
+                engineers.add(new EngineerItem(e.optString("id"),e.optString("name"),countStatus("В работе"),countStatus("Запланирован"),0,0));
+            }
+        }
+        if(engineers.isEmpty())engineers.add(new EngineerItem("EMP-013","Константин Шумкин",countStatus("В работе"),countStatus("Запланирован"),0,0));
+        managers.clear(); managers.add(new ManagerItem("U-IGOR","Игорь Филинов",liveKpiInt("leads",0),liveKpiInt("surveys",0),liveKpiInt("contracts",0),countStatus("В работе")));
+
+        txs.clear();
+        JSONArray income=root.optJSONArray("income");
+        if(income!=null)for(int x=0;x<income.length();x++){
+            JSONObject t=income.getJSONObject(x);
+            String type="Возврат клиенту".equals(t.optString("operation"))?"EXPENSE":"INCOME";
+            txs.add(new MoneyTx(type,t.optString("paymentKind","Приход"),t.optString("object"),t.optLong("amount")));
+        }
+        JSONArray ex=root.optJSONArray("expenses");
+        if(ex!=null)for(int x=0;x<ex.length();x++){
+            JSONObject t=ex.getJSONObject(x);
+            String type="Перевод подотчёта".equals(t.optString("type"))?"TRANSFER":"EXPENSE";
+            String sub=t.optString("object");
+            if(sub.isEmpty())sub=t.optString("description");
+            txs.add(new MoneyTx(type,t.optString("article",t.optString("type")),sub,t.optLong("amount")));
+        }
+
+        surveys.clear();
+        JSONArray sa=root.optJSONArray("surveys");
+        if(sa!=null)for(int x=0;x<sa.length();x++){
+            JSONObject z=sa.optJSONObject(x);if(z==null)continue;
+            surveys.add(new SurveyItem(
+                    z.optString("Survey_ID"),z.optString("Клиент"),z.optString("Телефон"),
+                    z.optString("Дата"),daysSince(z.optString("Дата")),0,
+                    "TRUE".equalsIgnoreCase(z.optString("ConvertedToObject"))||"true".equalsIgnoreCase(z.optString("ConvertedToObject"))
+            ));
+        }
+
+        techTasks.clear();
+        JSONArray tt=root.optJSONArray("techTasks");
+        if(tt!=null)for(int x=0;x<tt.length();x++){
+            JSONObject z=tt.optJSONObject(x);if(z==null)continue;
+            String objectId=z.optString("Object_ID");if(objectId.isEmpty())continue;
+            TechTask t=new TechTask(objectId);t.saved=true;techTasks.put(objectId,t);
+        }
+        JSONArray assignments=root.optJSONArray("assignments");
+        if(assignments!=null)for(int x=0;x<assignments.length();x++){
+            JSONObject z=assignments.optJSONObject(x);if(z==null)continue;
+            TechTask t=techTasks.computeIfAbsent(z.optString("Object_ID"),TechTask::new);
+            String name=z.optString("Монтажник");if(!name.isEmpty())t.installers.put(name,jsonLong(z,"Согласованная сумма"));
+            t.saved=true;
+        }
+        JSONArray dp=root.optJSONArray("dayPlans");
+        if(dp!=null)for(int x=0;x<dp.length();x++){
+            JSONObject z=dp.optJSONObject(x);if(z==null)continue;
+            TechTask t=techTasks.computeIfAbsent(z.optString("Object_ID"),TechTask::new);
+            int n=(int)jsonLong(z,"День №");String task=z.optString("Задача");String q=z.optString("План объём");
+            if(n==1){if(t.day1a==null||t.day1a.startsWith("Монтаж каркаса"))t.day1a=task+" — "+q;else t.day1b=task+" — "+q;}
+            if(n==2){if(t.day2a==null||t.day2a.startsWith("Задувной"))t.day2a=task+" — "+q;else t.day2b=task+" — "+q;}
+            t.saved=true;
+        }
+
+        livePaymentPlan.clear();
+        JSONArray pp=root.optJSONArray("paymentPlan");
+        if(pp!=null)for(int x=0;x<pp.length();x++){
+            JSONObject p=pp.optJSONObject(x);if(p==null)continue;
+            livePaymentPlan.add(new PaymentItem(p.optString("id"),p.optString("objectId"),p.optString("plannedDate"),
+                    p.optString("status"),p.optString("stageName"),p.optLong("plannedAmount"),p.optLong("actualPaid"),
+                    p.optLong("remaining"),p.optInt("overdueDays")));
+        }
+
+        liveCalendar.clear();
+        JSONArray ca=root.optJSONArray("calendar");
+        if(ca!=null)for(int x=0;x<ca.length();x++){JSONObject c=ca.optJSONObject(x);if(c==null)continue;liveCalendar.add(new CalendarItem(c.optString("Calendar_ID"),c.optString("Object_ID"),c.optString("Installer_ID"),c.optString("Монтажник"),c.optString("Окно начала — от"),c.optString("Окно начала — до"),c.optString("План начала"),c.optString("План окончания"),c.optString("Статус")));}
+
+        liveMedia.clear();
+        JSONArray mm=root.optJSONArray("media");
+        if(mm!=null)for(int x=0;x<mm.length();x++){
+            JSONObject m=mm.optJSONObject(x);if(m==null)continue;
+            liveMedia.add(new MediaItem(m.optString("Media_ID"),m.optString("Object_ID"),m.optString("Дата"),
+                    m.optString("Тип"),m.optString("Этап"),m.optString("URL"),m.optString("Комментарий")));
+        }
+
+        liveAttention.clear();
+        JSONArray aa=root.optJSONArray("attention");
+        if(aa!=null)for(int x=0;x<aa.length();x++){
+            JSONObject a=aa.optJSONObject(x);if(a==null)continue;
+            liveAttention.add(new AttentionItem(a.optString("severity"),a.optString("title"),a.optString("subtitle"),a.optString("target")));
+        }
+    }
+
+    private long jsonLong(JSONObject o,String key){
+        Object v=o.opt(key);if(v==null)return 0;
+        try{return Math.round(Double.parseDouble(String.valueOf(v).replace(" ","").replace("\u00a0","").replace(",",".")));}catch(Exception e){return 0;}
+    }
+    private int daysSince(String d){
+        try{
+            LocalDate x;
+            if(d.contains("."))x=LocalDate.parse(d,DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+            else x=LocalDate.parse(d.substring(0,10));
+            return (int)java.time.temporal.ChronoUnit.DAYS.between(x,LocalDate.now());
+        }catch(Exception e){return 0;}
+    }
+    private void showApiError(String error){
+        new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(error).setPositiveButton("Закрыть",null).show();
+    }
+    private void setBusy(Button b,boolean busy){b.setEnabled(!busy);b.setText(busy?"Сохраняю…":b.getText().toString().replace("Сохраняю…","Сохранить"));}
+    private ObjectItem findObjectByAddress(String address){for(ObjectItem o:objects)if(o.address.equals(address))return o;return null;}
 
     private void loadDemoState(){
         themeMode=prefs.getString("theme","Светлая");leaderName=prefs.getString("leader","Игорь Игоревич");demoRole=prefs.getString("role","Руководитель");currentPeriod=prefs.getString("period","Месяц");selectedCalendarDay=prefs.getInt("calDay",12);
@@ -1042,13 +1567,22 @@ public class MainActivity extends Activity {
 
     // ---------- models ----------
     static final class ObjectItem{
-        String id,address,client,workType,status,engineer,manager,installers;int progress;long contract,paid;
-        ObjectItem(String id,String address,String client,String workType,String status,int progress,long contract,long paid,String engineer,String manager,String installers){this.id=id;this.address=address;this.client=client;this.workType=workType;this.status=status;this.progress=progress;this.contract=contract;this.paid=paid;this.engineer=engineer;this.manager=manager;this.installers=installers;}
+        String id,address,client,phone,workType,status,engineer,manager,installers;int progress,revision;long contract,paid;
+        ObjectItem(String id,String address,String client,String workType,String status,int progress,long contract,long paid,String engineer,String manager,String installers){
+            this(id,address,client,"",workType,status,progress,contract,paid,engineer,manager,installers,1);
+        }
+        ObjectItem(String id,String address,String client,String phone,String workType,String status,int progress,long contract,long paid,String engineer,String manager,String installers,int revision){
+            this.id=id;this.address=address;this.client=client;this.phone=phone;this.workType=workType;this.status=status;this.progress=progress;this.contract=contract;this.paid=paid;this.engineer=engineer;this.manager=manager;this.installers=installers;this.revision=revision;
+        }
     }
     static final class InstallerItem{
         String id,name,uniformDate,status;int workDays,daysOff,closedObjects,tools;long accrued,paid;
         InstallerItem(String id,String name,int workDays,int daysOff,int closedObjects,long accrued,long paid,int tools,String uniformDate,String status){this.id=id;this.name=name;this.workDays=workDays;this.daysOff=daysOff;this.closedObjects=closedObjects;this.accrued=accrued;this.paid=paid;this.tools=tools;this.uniformDate=uniformDate;this.status=status;}
     }
+    static final class AttentionItem{String severity,title,subtitle,target;AttentionItem(String s,String t,String sub,String target){this.severity=s;this.title=t;this.subtitle=sub;this.target=target;}}
+    static final class PaymentItem{String id,objectId,date,status,stageName;long planned,paid,remaining;int overdue;PaymentItem(String id,String objectId,String date,String status,String stageName,long planned,long paid,long remaining,int overdue){this.id=id;this.objectId=objectId;this.date=date;this.status=status;this.stageName=stageName;this.planned=planned;this.paid=paid;this.remaining=remaining;this.overdue=overdue;}}
+    static final class MediaItem{String id,objectId,date,type,stage,url,comment;MediaItem(String id,String objectId,String date,String type,String stage,String url,String comment){this.id=id;this.objectId=objectId;this.date=date;this.type=type;this.stage=stage;this.url=url;this.comment=comment;}}
+    static final class CalendarItem{String id,objectId,installerId,installer,windowFrom,windowTo,planStart,planEnd,status;CalendarItem(String id,String objectId,String installerId,String installer,String windowFrom,String windowTo,String planStart,String planEnd,String status){this.id=id;this.objectId=objectId;this.installerId=installerId;this.installer=installer;this.windowFrom=windowFrom;this.windowTo=windowTo;this.planStart=planStart;this.planEnd=planEnd;this.status=status;}}
     static final class MoneyTx{
         final String type,title,sub;final long amount;
         MoneyTx(String type,String title,String sub,long amount){this.type=type;this.title=title;this.sub=sub;this.amount=amount;}
