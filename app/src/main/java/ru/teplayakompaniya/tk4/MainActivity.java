@@ -505,6 +505,9 @@ public class MainActivity extends Activity {
         f.addView(miniCard("↓","Получено",money(o.paid),BLUE,"payments:"+o.id),weightMarginLeft()); content.addView(f); spacer(7);
         content.addView(miniCard("◷","Осталось получить",money(Math.max(0,o.contract-o.paid)),ORANGE,"payments:"+o.id));
 
+        sectionTitle("Монтажники",null,null);
+        Button hired=primaryOutline("Добавить → Наёмник");hired.setOnClickListener(v->workforceUi().hiredDay(null,o.id));content.addView(hired);
+        Button move=primaryOutline("Переместить на другой объект");move.setOnClickListener(v->{String[] names=new String[installers.size()];for(int index=0;index<names.length;index++)names[index]=installers.get(index).name+" · "+installers.get(index).id;new AlertDialog.Builder(this).setTitle("Монтажник").setItems(names,(dialog,index)->workforceUi().moveInstaller(installers.get(index).id)).show();});content.addView(move);
         sectionTitle("Управление объектом",null,null);
         content.addView(attention("▤",techTasks.containsKey(o.id)&&techTasks.get(o.id).saved?"ТЗ создано":"Создать техническое задание","Монтажники · зарплата · план по дням · график оплат",ORANGE,"tech:"+o.id));
         content.addView(attention("₽","График платежей","Плановые, полученные и просроченные этапы",GREEN,"payments:"+o.id));
@@ -577,6 +580,7 @@ public class MainActivity extends Activity {
         final Map<String,CheckBox> checks=new LinkedHashMap<>(); final Map<String,EditText> wages=new LinkedHashMap<>();
 
         sectionTitle("Общие данные ТЗ","Object_ID: "+objectId,null);
+        Button hired=primaryOutline("Монтажники → Добавить → Наёмник");hired.setOnClickListener(v->workforceUi().hiredDay(null,objectId));content.addView(hired);
         final EditText planStart=taskField("План начала (дд.мм.гггг)",obj.planStart);
         final EditText planEnd=taskField("План окончания (дд.мм.гггг)",obj.planEnd);
         final EditText windowFrom=new EditText(this);
@@ -692,15 +696,24 @@ public class MainActivity extends Activity {
         if(installers.isEmpty())content.addView(emptyState("Монтажники не заполнены","Сервер вернул пустой справочник"));
     }
 
-    private View installerCard(InstallerItem installer){return clickableInfoRow(installer.name,"Монтажник ›",v->navigate("installer:"+installer.id));}
+    private View installerCard(InstallerItem installer){return clickableInfoRow(installer.name,(installer.hired?"Наёмник":"Монтажник")+" ›",v->navigate("installer:"+installer.id));}
 
     private void showInstallerDetail(String id){
         InstallerItem installer=findInstaller(id);if(installer==null){navigate("installers");return;}
-        beginScreen(true);appBar(installer.name,"Монтажник · "+id);
+        beginScreen(true);appBar(installer.name,(installer.hired?"Наёмник":"Монтажник")+" · "+id);
         if(hasData("payroll")){content.addView(infoRow("Начислено по доступным записям",money(installer.accrued)));content.addView(infoRow("Выплачено по доступным записям",money(installer.paid)));}
-        content.addView(emptyState("Недостаточно данных","API не отдаёт подтверждённую загрузку, рабочие дни, инструмент и СИЗ."));
+        if(!installer.hired)content.addView(emptyState("Недостаточно данных","API не отдаёт подтверждённую загрузку, рабочие дни, инструмент и СИЗ."));
         sectionTitle("Назначенные объекты",null,null);JSONArray assignments=snapshot.optJSONArray("assignments");Set<String> seen=new HashSet<>();
         if(assignments!=null)for(int n=0;n<assignments.length();n++){JSONObject assignment=assignments.optJSONObject(n);if(assignment==null||!id.equals(assignment.optString("Installer_ID")))continue;ObjectItem object=findObject(assignment.optString("Object_ID"));if(object!=null&&seen.add(object.id))content.addView(clickableInfoRow(object.address,object.status,v->navigate("object:"+object.id)));}
+        sectionTitle("История назначений",null,null);
+        if(assignments!=null)for(int n=0;n<assignments.length();n++){JSONObject assignment=assignments.optJSONObject(n);if(assignment==null||!id.equals(assignment.optString("Installer_ID")))continue;
+            content.addView(infoRow("Object_ID / Assignment_ID",assignment.optString("Object_ID")+" / "+assignment.optString("Assignment_ID")));
+            content.addView(infoRow("Период",displayField(assignment,"startDate")+" — "+displayField(assignment,"endDate")));
+            for(String[] row:new String[][]{{"Фактические дни","actualDays"},{"Тип оплаты","paymentType"},{"Начислено","accrued"},{"Выплачено","paid"},{"Осталось выплатить","remaining"}})content.addView(infoRow(row[0],displayField(assignment,row[1])));
+        }
+        Button move=primaryOutline("Переместить на другой объект");move.setOnClickListener(v->workforceUi().moveInstaller(id));content.addView(move);
+        if(installer.hired){Button add=primaryOutline("Добавить рабочий день");add.setOnClickListener(v->workforceUi().hiredDay(id,null));content.addView(add);
+            if(Stage1Rules.isAdmin(apiRole)){Button promote=primaryOutline("Перевести в монтажники");promote.setOnClickListener(v->workforceUi().promote(id));content.addView(promote);}}
     }
 
     // ---------- finance ----------
@@ -1283,6 +1296,11 @@ public class MainActivity extends Activity {
         if(who.equals("all")){java.util.Iterator<String> names=balances.keys();while(names.hasNext()){String name=names.next();JSONObject person=balances.optJSONObject(name);String value=person!=null&&person.opt("balance") instanceof Number?money(person.optLong("balance")):"Не заполнено";content.addView(clickableInfoRow(name,value,v->navigate("accountable:"+name)));}return;}
         JSONObject person=balances.optJSONObject(who);content.addView(infoRow("Остаток",person!=null&&person.opt("balance") instanceof Number?money(person.optLong("balance")):"Не заполнено"));
         content.addView(tv("История ниже ограничена последними операциями API.",11,MUTED,Typeface.NORMAL));for(MoneyTx tx:txs)if(who.equals(tx.responsible))content.addView(clickableInfoRow(tx.date+" · "+tx.title,money(tx.amount),v->showOperation(tx)));
+        if(person!=null){
+            for(String[] row:new String[][]{{"Получено от компании","receivedFromCompany"},{"Потрачено","expenses"},{"Передано другому подотчётному лицу","outgoingTransfers"},{"Вложено собственных средств — за всё время","personalInvested"},{"Возмещено собственных средств","personalReimbursed"}})content.addView(infoRow(row[0],person.opt(row[1]) instanceof Number?money(person.optLong(row[1])):"Не заполнено"));
+            if(person.opt("balance") instanceof Number){long outstanding=Stage1Ledger.personalFundsOutstanding(person.optLong("balance"));content.addView(infoRow("Собственных средств вложено — не возмещено",money(outstanding)));if(outstanding>0)content.addView(tv("Отрицательный остаток: расходы компании оплачены собственными средствами. Это не ошибка данных.",12,MUTED,Typeface.NORMAL));}
+            Button reimbursement=primaryOutline("Возместить личные средства");reimbursement.setOnClickListener(v->workforceUi().reimburse(who,person));content.addView(reimbursement);
+        }
     }
 
     private void editProfileDialog(){EditText n=edit("Имя");n.setText(leaderName);new AlertDialog.Builder(this).setTitle("Профиль").setView(n).setPositiveButton("Сохранить",(d,w)->{String x=n.getText().toString().trim();if(!x.isEmpty())leaderName=x;saveDemoState();render();}).setNeutralButton("Изменить фото",(d,w)->{
@@ -1415,9 +1433,10 @@ public class MainActivity extends Activity {
             JSONObject e=ea.getJSONObject(x);
             if(!"true".equalsIgnoreCase(e.optString("active","true")) && !"TRUE".equals(e.optString("active")))continue;
             String role=e.optString("role","");
-            if(role.toLowerCase(Locale.ROOT).contains("монтаж")){
+            if(role.toLowerCase(Locale.ROOT).contains("монтаж")||role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED")){
                 long[] pp=payroll.getOrDefault(e.optString("id"),new long[2]);
                 installers.add(new InstallerItem(e.optString("id"),e.optString("name"),0,0,0,pp[0],pp[1],0,"","Не заполнено"));
+                installers.get(installers.size()-1).hired=role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED");
             }
             if(role.toLowerCase(Locale.ROOT).contains("инжен")||role.toLowerCase(Locale.ROOT).contains("партн")){
                 engineers.add(new EngineerItem(e.optString("id"),e.optString("name"),0,0,0,0));
@@ -1632,6 +1651,8 @@ public class MainActivity extends Activity {
     static final class EngineerItem{String id,name;int activeObjects,planned,overdue,noReport;EngineerItem(String id,String name,int a,int p,int o,int n){this.id=id;this.name=name;this.activeObjects=a;this.planned=p;this.overdue=o;this.noReport=n;}}
     static final class ManagerItem{String id,name;int leads,surveys,contracts,installations;ManagerItem(String id,String name,int l,int s,int c,int i){this.id=id;this.name=name;this.leads=l;this.surveys=s;this.contracts=c;this.installations=i;}}
 
+    private Stage1WorkforceUi workforceUi(){return new Stage1WorkforceUi(this,snapshot,api,canFinance(),Stage1Rules.isAdmin(apiRole),()->syncNow(false));}
+    private String displayField(JSONObject row,String key){return row.has(key)&&!row.isNull(key)&&!row.optString(key).isEmpty()?row.optString(key):"Не заполнено";}
     private boolean hasPaymentRows(String objectId){for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId))return true;return false;}
     private void showSavedTechTask(String objectId){
         ObjectItem object=findObject(objectId);beginScreen(true);appBar("Техническое задание",object==null?objectId:object.address);
@@ -1657,7 +1678,7 @@ public class MainActivity extends Activity {
             this.id=id;this.address=address;this.client=client;this.phone=phone;this.workType=workType;this.status=status;this.progress=progress;this.contract=contract;this.paid=paid;this.engineer=engineer;this.manager=manager;this.installers=installers;this.revision=revision;
         }
     }
-    static final class InstallerItem{
+    static final class InstallerItem{boolean hired=false;
         String id,name,uniformDate,status;int workDays,daysOff,closedObjects,tools;long accrued,paid;
         InstallerItem(String id,String name,int workDays,int daysOff,int closedObjects,long accrued,long paid,int tools,String uniformDate,String status){this.id=id;this.name=name;this.workDays=workDays;this.daysOff=daysOff;this.closedObjects=closedObjects;this.accrued=accrued;this.paid=paid;this.tools=tools;this.uniformDate=uniformDate;this.status=status;}
     }
