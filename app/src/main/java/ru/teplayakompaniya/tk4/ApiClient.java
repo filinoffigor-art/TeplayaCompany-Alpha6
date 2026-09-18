@@ -16,6 +16,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -31,6 +33,7 @@ public final class ApiClient {
     private final SharedPreferences prefs;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final Set<String> pending = new HashSet<>();
 
     public ApiClient(Context context, SharedPreferences prefs) {
         this.prefs = prefs;
@@ -119,6 +122,16 @@ public final class ApiClient {
     }
 
     private void postRaw(JSONObject body, Callback cb) {
+        // Exclude generated request IDs, but include account/device and actual payload.
+        final String pendingKey;
+        try {
+            JSONObject fingerprint = new JSONObject(body.toString());
+            fingerprint.remove("requestId");
+            pendingKey = fingerprint.toString();
+        } catch (Exception ignored) { postError(cb, "Некорректный запрос"); return; }
+        synchronized (pending) {
+            if (!pending.add(pendingKey)) { postError(cb, "Это действие уже выполняется"); return; }
+        }
         executor.execute(() -> {
             HttpURLConnection c = null;
             try {
@@ -130,7 +143,7 @@ public final class ApiClient {
                 c.setDoOutput(true);
                 c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                 byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-                c.setFixedLengthStreamingMode(bytes.length);
+                // Buffered mode allows the platform to follow the Apps Script redirect.
                 try(OutputStream os = c.getOutputStream()) { os.write(bytes); }
 
                 int code = c.getResponseCode();
@@ -143,9 +156,10 @@ public final class ApiClient {
                     postSuccess(cb, json);
                 }
             } catch (Exception e) {
-                postError(cb, e.getClass().getSimpleName() + ": " + e.getMessage());
+                postError(cb, "Нет связи с сервером. Проверьте интернет и повторите запрос.");
             } finally {
                 if (c != null) c.disconnect();
+                synchronized (pending) { pending.remove(pendingKey); }
             }
         });
     }
