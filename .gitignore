@@ -1,0 +1,9 @@
+.gradle/
+**/build/
+local.properties
+*.keystore
+*.jks
+stage1-reference/
+stage1_*.py
+qa/
+delivery/
