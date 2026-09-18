@@ -569,98 +569,14 @@ public class MainActivity extends Activity {
 
     // ---------- tech task ----------
 
-    private void showTechTask(String objectId) {
-        ObjectItem obj=findObject(objectId);
-        if(obj==null){navigate("objects");return;}
-        if(!Stage1Rules.canCreateTask(obj.status,obj.planStart)){unavailable("ТЗ недоступно","Сначала подтвердите объект и дату начала монтажа");return;}
+    private void showTechTask(String objectId){
+        ObjectItem object=findObject(objectId);if(object==null){navigate("objects");return;}
         if(techTasks.containsKey(objectId)||hasPaymentRows(objectId)){showSavedTechTask(objectId);return;}
+        if(!Stage1Rules.canCreateTask(object.status,object.planStart)){unavailable("ТЗ недоступно","Сначала подтвердите объект и дату начала монтажа");return;}
         if(!hasData("techTasks")||!hasData("paymentPlan")){unavailable("ТЗ недоступно","Сначала синхронизируйте задания и графики оплат");return;}
-        beginScreen(true); appBar("Техническое задание","Инженер · "+obj.address);
-        TechTask existing=techTasks.get(objectId); if(existing==null) existing=new TechTask(objectId); final TechTask task=existing;
-        final Map<String,CheckBox> checks=new LinkedHashMap<>(); final Map<String,EditText> wages=new LinkedHashMap<>();
-
-        sectionTitle("Общие данные ТЗ","Object_ID: "+objectId,null);
+        beginScreen(true);appBar("Техническое задание",object.address);
         Button hired=primaryOutline("Монтажники → Добавить → Наёмник");hired.setOnClickListener(v->workforceUi().hiredDay(null,objectId));content.addView(hired);
-        final EditText planStart=taskField("План начала (дд.мм.гггг)",obj.planStart);
-        final EditText planEnd=taskField("План окончания (дд.мм.гггг)",obj.planEnd);
-        final EditText windowFrom=new EditText(this);
-        final EditText windowTo=new EditText(this);
-        CheckBox materialsReady=new CheckBox(this);materialsReady.setText("Материалы / ресурсы подготовлены");materialsReady.setTextColor(resolveText(INK));content.addView(materialsReady);
-
-        sectionTitle("Монтажники на объекте","Конкретные сотрудники и согласованная сумма",null);
-        for(InstallerItem i:installers){
-            LinearLayout r=h();r.setPadding(dp(9),dp(8),dp(9),dp(8));r.setBackground(round(cardBg(),14));
-            CheckBox cb=new CheckBox(this);cb.setChecked(task.installers.containsKey(i.name));checks.put(i.name,cb);r.addView(cb,new LinearLayout.LayoutParams(dp(44),dp(44)));
-            LinearLayout name=v();name.addView(tv(i.name,12,INK,Typeface.BOLD));name.addView(tv(i.status,9,MUTED,Typeface.NORMAL));r.addView(name,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
-            EditText amount=edit("Сумма");amount.setInputType(InputType.TYPE_CLASS_NUMBER);Long saved=task.installers.get(i.name);amount.setText(saved==null?"":String.valueOf(saved));wages.put(i.name,amount);r.addView(amount,new LinearLayout.LayoutParams(dp(100),dp(44)));
-            LinearLayout.LayoutParams rp=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);rp.setMargins(0,0,0,dp(6));content.addView(r,rp);
-        }
-
-        sectionTitle("План объекта по дням","Факт затем заполняется монтажником",null);
-        final EditText d1a=taskField("День 1 — задача 1",task.saved?task.day1a:"");
-        final EditText d1b=taskField("День 1 — задача 2",task.saved?task.day1b:"");
-        final EditText d2a=taskField("День 2 — задача 1",task.saved?task.day2a:"");
-        final EditText d2b=taskField("День 2 — задача 2",task.saved?task.day2b:"");
-        final EditText note=taskField("Комментарий монтажникам",task.saved?task.note:"");
-
-        sectionTitle("График оплат клиента","Дебиторка = только просроченные этапы",null);
-        final EditText pd1=taskField("Этап 1 — дата","");
-        final EditText p1=taskField("Этап 1 — сумма",task.saved&&task.pay1>0?String.valueOf(task.pay1):"");
-        final EditText pd2=taskField("Этап 2 — дата","");
-        final EditText p2=taskField("Этап 2 — сумма",task.saved&&task.pay2>0?String.valueOf(task.pay2):"");
-        final EditText pd3=taskField("Этап 3 — дата","");
-        final EditText p3=taskField("Этап 3 — сумма",task.saved&&task.pay3>0?String.valueOf(task.pay3):"");
-
-        Button save=primary("Сохранить ТЗ в Google Sheets");
-        save.setOnClickListener(v->{
-            if(api==null||!api.hasToken()){showPairingDialog();return;}
-            try{
-                JSONObject b=new JSONObject();
-                b.put("objectId",objectId);b.put("status","Готово");b.put("engineer",api.getUserName());
-                b.put("workType",obj.workType);b.put("planStart",planStart.getText().toString().trim());b.put("planEnd",planEnd.getText().toString().trim());
-                b.put("windowFrom",windowFrom.getText().toString().trim());b.put("windowTo",windowTo.getText().toString().trim());
-                b.put("materialsReady",materialsReady.isChecked());b.put("comment",note.getText().toString().trim());
-
-                JSONArray asn=new JSONArray();task.installers.clear();
-                for(InstallerItem i:installers){
-                    CheckBox cb=checks.get(i.name); if(cb!=null&&cb.isChecked()){
-                        long wage=parseLong(wages.get(i.name).getText().toString());
-                        if(wage<=0){toast("Укажите согласованную сумму для "+i.name);return;}
-                        JSONObject a=new JSONObject();a.put("installerId",i.id);a.put("name",i.name);a.put("agreedAmount",wage);a.put("status","Назначен");asn.put(a);
-                        task.installers.put(i.name,wage);
-                    }
-                }
-                if(asn.length()==0){toast("Назначьте хотя бы одного монтажника");return;}b.put("assignments",asn);
-
-                JSONArray days=new JSONArray();
-                String[] tasks={d1a.getText().toString().trim(),d1b.getText().toString().trim(),d2a.getText().toString().trim(),d2b.getText().toString().trim()};
-                int[] dns={1,1,2,2};
-                for(int i=0;i<tasks.length;i++)if(!tasks[i].isEmpty()){JSONObject x=new JSONObject();x.put("dayNo",dns[i]);x.put("task",tasks[i]);x.put("status","План");days.put(x);}
-                if(days.length()==0){toast("Заполните план хотя бы на один день");return;}b.put("days",days);
-
-                JSONArray pays=new JSONArray();
-                String[] dates={pd1.getText().toString().trim(),pd2.getText().toString().trim(),pd3.getText().toString().trim()};
-                EditText[] amounts={p1,p2,p3};
-                for(int i=0;i<3;i++){
-                    long a=parseLong(amounts[i].getText().toString());
-                    if(a>0&&!dates[i].isEmpty()){JSONObject x=new JSONObject();x.put("stageNo",i+1);x.put("stageName","Этап "+(i+1));x.put("plannedDate",dates[i]);x.put("plannedAmount",a);pays.put(x);}
-                }
-                if(pays.length()==0){toast("Добавьте хотя бы один этап оплаты");return;}b.put("payments",pays);
-
-                setBusy(save,true);
-                api.mutate("saveTechTask",b,new ApiClient.Callback(){
-                    public void onSuccess(JSONObject json){
-                        setBusy(save,false);task.saved=true;task.day1a=tasks[0];task.day1b=tasks[1];task.day2a=tasks[2];task.day2b=tasks[3];task.note=note.getText().toString();
-                        task.pay1=parseLong(p1.getText().toString());task.pay2=parseLong(p2.getText().toString());task.pay3=parseLong(p3.getText().toString());techTasks.put(objectId,task);
-                        toast("ТЗ записано и связано с объектом");syncNow(false);
-                    }
-                    public void onError(String error){setBusy(save,false);showApiError(error);}
-                });
-            }catch(Exception ex){showApiError(ex.toString());}
-        });content.addView(save);spacer(7);
-
-        Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->shareTechTask(objectId));content.addView(share);
-        Button pdf=primaryOutline("PDF / Сохранить");pdf.setOnClickListener(v->Stage1Pdf.export(this,"ТЗ-"+objectId,techTaskText(objectId)));content.addView(pdf);
+        new Stage1TaskEditor(this,content,api,object,installers,()->syncNow(false));
     }
 
     private View dayCard(String title,String t1,String q1,String t2,String q2){
