@@ -47,9 +47,10 @@ public final class Stage1WorkforceUi {
         LinearLayout form=form();label(form,"Возмещение собственных средств не является повторным расходом компании.");
         if(balance.opt("balance") instanceof Number)label(form,"К возмещению: "+money(Stage1Ledger.personalFundsOutstanding(balance.optLong("balance"))));
         EditText amount=field(form,"Сумма","",true);EditText reason=field(form,"Основание / причина","",false);
+        List<JSONObject> sources=rows("fundingAccounts");List<String> sourceNames=new ArrayList<>();for(JSONObject source:sources)sourceNames.add(source.optString("name"));Spinner funding=options(form,"Источник возмещения",sourceNames);
         commandDialog("Возместить: "+person,form,"personalReimbursementsV1",()->{
             long value=positive(amount);Stage1Ledger.balanceAfterReimbursement(balance.getLong("balance"),value);
-            JSONObject command=Stage1Contracts.command("reimbursePersonalFunds",required(reason.getText().toString()));command.put("Accountable_ID",required(balance.optString("Accountable_ID")));command.put("amount",value);command.put("expectedRevision",balance.getInt("revision"));return command;
+            JSONObject command=Stage1Contracts.command("reimbursePersonalFunds",required(reason.getText().toString()));command.put("Accountable_ID",required(balance.optString("Accountable_ID")));command.put("Funding_Account_ID",required(sources.get(funding.getSelectedItemPosition()).optString("id")));command.put("amount",value);command.put("expectedRevision",balance.getInt("revision"));return command;
         });
     }
     public void moveInstaller(String installerId){

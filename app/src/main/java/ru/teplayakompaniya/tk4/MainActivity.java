@@ -660,6 +660,7 @@ public class MainActivity extends Activity {
         });content.addView(save);spacer(7);
 
         Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->shareTechTask(objectId));content.addView(share);
+        Button pdf=primaryOutline("PDF / Сохранить");pdf.setOnClickListener(v->Stage1Pdf.export(this,"ТЗ-"+objectId,techTaskText(objectId)));content.addView(pdf);
     }
 
     private View dayCard(String title,String t1,String q1,String t2,String q2){
@@ -672,19 +673,7 @@ public class MainActivity extends Activity {
     }
 
     private void shareTechTask(String objectId){
-        TechTask t=techTasks.get(objectId); ObjectItem o=findObject(objectId);
-        StringBuilder sb=new StringBuilder("ТЁПЛАЯ КОМПАНИЯ — ТЕХНИЧЕСКОЕ ЗАДАНИЕ\n");
-        sb.append("Объект: ").append(o==null?objectId:o.address).append("\n");
-        if(t!=null){
-            sb.append("Монтажники:\n"); for(Map.Entry<String,Long> e:t.installers.entrySet())sb.append("• ").append(e.getKey()).append("\n");
-            sb.append("\nДень 1: ").append(t.day1a).append("; ").append(t.day1b).append("\n");
-            sb.append("День 2: ").append(t.day2a).append("; ").append(t.day2b).append("\n");
-            sb.append("Комментарий: ").append(t.note).append("\n");
-            sb.append("\nГрафик оплат: ").append(money(t.pay1)).append(" / ").append(money(t.pay2)).append(" / ").append(money(t.pay3));
-        }
-        sb.append("\n\nФинансовая аналитика компании монтажникам не передаётся.");
-        Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");send.putExtra(Intent.EXTRA_SUBJECT,"ТЗ — "+objectId);send.putExtra(Intent.EXTRA_TEXT,sb.toString());
-        startActivity(Intent.createChooser(send,"Поделиться ТЗ"));
+        Intent share=new Intent(Intent.ACTION_SEND);share.setType("text/plain");share.putExtra(Intent.EXTRA_SUBJECT,"ТЗ — "+objectId);share.putExtra(Intent.EXTRA_TEXT,techTaskText(objectId));startActivity(Intent.createChooser(share,"Поделиться ТЗ"));
     }
 
     // ---------- installers ----------
@@ -923,6 +912,7 @@ public class MainActivity extends Activity {
 
     private void showKpiDetail(String key){
         if(key.equals("notifications")){showNotifications();return;}
+        if(key.equals("expense_object")){showFinance();moneyDialog("EXPENSE");return;}
         beginScreen(true);String title=humanKpi(key);appBar(title,"Детализация показателя · "+currentPeriod);content.addView(kpiCard("▥",title,kpiValue(key),"Каждая строка ведёт к первичной записи",GREEN,null));sectionTitle("Расшифровка",null,null);
         if(kpiValue(key).equals("Не заполнено")||kpiValue(key).equals("Недостаточно данных")){
             content.addView(emptyState("Недостаточно данных","API не передаёт этот показатель или подтверждение полноты истории за период."));
@@ -1651,6 +1641,17 @@ public class MainActivity extends Activity {
     static final class EngineerItem{String id,name;int activeObjects,planned,overdue,noReport;EngineerItem(String id,String name,int a,int p,int o,int n){this.id=id;this.name=name;this.activeObjects=a;this.planned=p;this.overdue=o;this.noReport=n;}}
     static final class ManagerItem{String id,name;int leads,surveys,contracts,installations;ManagerItem(String id,String name,int l,int s,int c,int i){this.id=id;this.name=name;this.leads=l;this.surveys=s;this.contracts=c;this.installations=i;}}
 
+    private String techTaskText(String objectId){
+        ObjectItem object=findObject(objectId);StringBuilder text=new StringBuilder("ТЁПЛАЯ КОМПАНИЯ — ТЕХНИЧЕСКОЕ ЗАДАНИЕ\n");
+        text.append("Object_ID: ").append(objectId).append("\n");if(object!=null)text.append(object.address).append("\nДаты: ").append(object.planStart).append(" — ").append(object.planEnd).append("\n");
+        JSONArray tasks=snapshot.optJSONArray("techTasks");boolean saved=false;
+        if(tasks!=null)for(int index=0;index<tasks.length();index++){JSONObject task=tasks.optJSONObject(index);if(task!=null&&objectId.equals(task.optString("Object_ID"))){saved=true;text.append("TechTask_ID: ").append(task.optString("TechTask_ID")).append("\n").append(task.optString("Комментарий")).append("\n");}}
+        if(!saved)text.append("ТЗ не сохранено на сервере. Данные формы в этот документ не включены.\n");
+        JSONArray days=snapshot.optJSONArray("dayPlans");if(days!=null)for(int index=0;index<days.length();index++){JSONObject day=days.optJSONObject(index);if(day!=null&&objectId.equals(day.optString("Object_ID")))text.append(day.optString("Дата")).append(" · ").append(day.optString("Задача")).append(" · План: ").append(day.optString("План объём")).append("\n");}
+        TechTask task=techTasks.get(objectId);if(task!=null){text.append("Монтажники:\n");for(String name:task.installers.keySet())text.append(name).append("\n");}
+        text.append("График платежей:\n");boolean payments=false;for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId)){payments=true;text.append(payment.id).append(" · ").append(payment.date).append(" · ").append(payment.stageName).append(" · ").append(money(payment.planned)).append("\n");}if(!payments)text.append("Не заполнено\n");
+        return text.toString();
+    }
     private Stage1WorkforceUi workforceUi(){return new Stage1WorkforceUi(this,snapshot,api,canFinance(),Stage1Rules.isAdmin(apiRole),()->syncNow(false));}
     private String displayField(JSONObject row,String key){return row.has(key)&&!row.isNull(key)&&!row.optString(key).isEmpty()?row.optString(key):"Не заполнено";}
     private boolean hasPaymentRows(String objectId){for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId))return true;return false;}
@@ -1664,6 +1665,7 @@ public class MainActivity extends Activity {
         content.addView(clickableInfoRow("Ежедневные фото","Открыть ›",v->navigate("photos:"+objectId)));
         content.addView(clickableInfoRow("График оплат","Открыть ›",v->navigate("payments:"+objectId)));
         Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->shareTechTask(objectId));content.addView(share);
+        Button pdf=primaryOutline("PDF / Сохранить");pdf.setOnClickListener(v->Stage1Pdf.export(this,"ТЗ-"+objectId,techTaskText(objectId)));content.addView(pdf);
     }
 
     static final class TechTask{String objectId;Map<String,Long> installers=new LinkedHashMap<>();String day1a="",day1b="",day2a="",day2b="",note="";long pay1=0,pay2=0,pay3=0;boolean saved=false;TechTask(String id){objectId=id;}}

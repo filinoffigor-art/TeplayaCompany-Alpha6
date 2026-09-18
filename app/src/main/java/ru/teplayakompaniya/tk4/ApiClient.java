@@ -31,9 +31,9 @@ public final class ApiClient {
     }
 
     private final SharedPreferences prefs;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final Set<String> pending = new HashSet<>();
+    private static final Set<String> pending = new HashSet<>();
 
     public ApiClient(Context context, SharedPreferences prefs) {
         this.prefs = prefs;
