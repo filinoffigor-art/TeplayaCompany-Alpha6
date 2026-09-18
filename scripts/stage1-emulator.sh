@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+node scripts/stage1-migration-test.cjs
 mkdir -p qa
 adb shell wm size 824x1830
 adb shell wm density 320
