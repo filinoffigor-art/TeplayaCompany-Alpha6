@@ -44,7 +44,16 @@ public final class Stage1Smoke extends Instrumentation {
                 check(allText(activity.getWindow().getDecorView()).contains("-30"),"Loss was clamped to zero");
             });
             capture("02-home-fixture");
-            String[] screens={"objects","object:QA-OBJECT","tech:QA-OBJECT","finance","analytics","calendar","settings","kpi:notifications","installers","engineers","managers","surveys"};
+            onUi(()->{
+                String text=allText(activity.getWindow().getDecorView());
+                check(text.indexOf("Быстрый доступ")<text.indexOf("Ключевые показатели"),"Approved block order changed");
+                check(text.contains("Общие расходы")&&text.contains("В работе"),"Approved main cards missing");
+                bounds(activity.getWindow().getDecorView(),false);
+                clickDescription(activity.getWindow().getDecorView(),"Профиль");
+            });
+            onUi(()->check(allText(activity.getWindow().getDecorView()).contains("Личные данные"),"Profile entry did not navigate"));
+            onUi(()->activity.onBackPressed());
+            String[] screens={"objects","object:QA-OBJECT","tech:QA-OBJECT","finance","analytics","calendar","settings","profile","quick","kpi:notifications","installers","engineers","managers","surveys"};
             for(String screen:screens){onUi(()->invoke("navigate",screen));SystemClock.sleep(250);onUi(()->bounds(activity.getWindow().getDecorView(),false));capture(screen.replace(':','-'));onUi(()->activity.onBackPressed());}
             onUi(()->{invoke("navigate","accountable:Игорь");String text=allText(activity.getWindow().getDecorView());check(text.contains("Отрицательный остаток"),"Negative accountable balance treated as missing");check(text.contains("Возместить личные средства"),"Reimbursement entry point missing");});capture("accountable-negative");onUi(()->activity.onBackPressed());
             onUi(()->{invoke("selectPeriod","Год");check(!allText(activity.getWindow().getDecorView()).contains("120 000"),"Old period value leaked");});
@@ -60,6 +69,11 @@ public final class Stage1Smoke extends Instrumentation {
     private void invoke(String name,String value) throws Exception{Method m=MainActivity.class.getDeclaredMethod(name,String.class);m.setAccessible(true);m.invoke(activity,value);}
     private void field(String name,Object value)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
     private static void check(boolean ok,String message){if(!ok)throw new AssertionError(message);}
+    private boolean clickDescription(View view,String label){
+        if(view.isClickable()&&label.contentEquals(view.getContentDescription()==null?"":view.getContentDescription())){view.performClick();return true;}
+        if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)if(clickDescription(((ViewGroup)view).getChildAt(i),label))return true;
+        return false;
+    }
     private String allText(View view){StringBuilder s=new StringBuilder();if(view instanceof TextView)s.append(((TextView)view).getText()).append('\n');if(view instanceof ViewGroup)for(int n=0;n<((ViewGroup)view).getChildCount();n++)s.append(allText(((ViewGroup)view).getChildAt(n)));return s.toString();}
     private void bounds(View view,boolean scrollable){boolean skip=scrollable||view instanceof HorizontalScrollView;if(!skip&&view.isShown()&&view.getWidth()>0){int[] location=new int[2];view.getLocationOnScreen(location);int width=activity.getResources().getDisplayMetrics().widthPixels;check(location[0]>=-2&&location[0]+view.getWidth()<=width+2,"Horizontal overflow: "+view.getClass().getSimpleName());}if(view instanceof ViewGroup)for(int n=0;n<((ViewGroup)view).getChildCount();n++)bounds(((ViewGroup)view).getChildAt(n),skip);}
     private void capture(String name)throws Exception{waitForIdleSync();SystemClock.sleep(250);Bitmap bitmap=getUiAutomation().takeScreenshot();check(bitmap!=null,"No screenshot");File directory=new File(getTargetContext().getExternalFilesDir(null),"stage1-qa");directory.mkdirs();try(FileOutputStream output=new FileOutputStream(new File(directory,name+".png"))){bitmap.compress(Bitmap.CompressFormat.PNG,100,output);}bitmap.recycle();}
