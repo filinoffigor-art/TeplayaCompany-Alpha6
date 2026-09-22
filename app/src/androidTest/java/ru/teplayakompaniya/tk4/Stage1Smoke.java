@@ -53,7 +53,7 @@ public final class Stage1Smoke extends Instrumentation {
             });
             onUi(()->check(allText(activity.getWindow().getDecorView()).contains("Личные данные"),"Profile entry did not navigate"));
             onUi(()->activity.onBackPressed());
-            String[] screens={"objects","object:QA-OBJECT","tech:QA-OBJECT","finance","analytics","calendar","settings","profile","quick","kpi:notifications","installers","engineers","managers","surveys"};
+            String[] screens={"objects","object:QA-OBJECT","tech:QA-OBJECT","finance","finance:income","finance:expenses","finance:transfers","finance:analytics","finance:telegram","analytics","calendar","settings","profile","quick","kpi:notifications","installers","engineers","managers","surveys"};
             for(String screen:screens){onUi(()->invoke("navigate",screen));SystemClock.sleep(250);onUi(()->bounds(activity.getWindow().getDecorView(),false));capture(screen.replace(':','-'));onUi(()->activity.onBackPressed());}
             onUi(()->{invoke("navigate","accountable:Игорь");String text=allText(activity.getWindow().getDecorView());check(text.contains("Отрицательный остаток"),"Negative accountable balance treated as missing");check(text.contains("Возместить личные средства"),"Reimbursement entry point missing");});capture("accountable-negative");onUi(()->activity.onBackPressed());
             onUi(()->{invoke("selectPeriod","Год");check(!allText(activity.getWindow().getDecorView()).contains("120 000"),"Old period value leaked");});
