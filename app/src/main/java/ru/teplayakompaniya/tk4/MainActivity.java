@@ -181,7 +181,8 @@ public class MainActivity extends Activity {
             case "surveys": showSurveys(); break;
             case "newEmployee": showNewEmployee(); break;
             default:
-                if (screen.startsWith("object:")) showObjectDetail(screen.substring(7));
+                if (screen.startsWith("finance:")) showFinance();
+                else if (screen.startsWith("object:")) showObjectDetail(screen.substring(7));
                 else if (screen.startsWith("installer:")) showInstallerDetail(screen.substring(10));
                 else if (screen.startsWith("engineer:")) showEngineerDetail(screen.substring(9));
                 else if (screen.startsWith("manager:")) showManagerDetail(screen.substring(8));
@@ -423,7 +424,7 @@ public class MainActivity extends Activity {
 
 
     private View referenceMetric(String icon,String label,String value,String note,int tint,String target,boolean compact){
-        LinearLayout card=v();card.setPadding(dp(10),dp(10),dp(10),dp(10));card.setBackground(round(light(tint),18));card.setMinimumHeight(dp(compact?84:108));
+        LinearLayout card=v();card.setPadding(dp(10),dp(10),dp(10),dp(10));card.setBackground(round(light(tint),14));card.setMinimumHeight(dp(compact?70:96));
         LinearLayout top=h();FrameLayout symbol=new FrameLayout(this);symbol.setBackground(round(tint,9));symbol.addView(new ReferenceIcon(this,icon,WHITE),new FrameLayout.LayoutParams(dp(21),dp(21),Gravity.CENTER));top.addView(symbol,new LinearLayout.LayoutParams(dp(31),dp(34)));
         LinearLayout text=v();text.setPadding(dp(8),0,0,0);TextView title=tv(label,11,INK,Typeface.BOLD);title.setMaxLines(2);text.addView(title);
         TextView amount=tv(value,compact?16:20,INK,Typeface.BOLD);amount.setMaxLines(1);amount.setAutoSizeTextTypeUniformWithConfiguration(10,compact?16:20,1,android.util.TypedValue.COMPLEX_UNIT_SP);text.addView(amount,new LinearLayout.LayoutParams(-1,dp(28)));top.addView(text,new LinearLayout.LayoutParams(0,-2,1));
@@ -636,14 +637,65 @@ public class MainActivity extends Activity {
     // ---------- finance ----------
 
     private void showFinance(){
-        beginScreen(true);appBar("Финансы","Приход / Расход / Передать");periodSelector();
-        LinearLayout totals=h();totals.addView(kpiCard("₽","Оборот",metric("turnover",true),"Из API",GREEN,"kpi:turnover"),weight());totals.addView(kpiCard("↓","Расходы",metric("expenses",true),"Без внутренних переводов",RED,"kpi:expenses"),weightMarginLeft());content.addView(totals);
-        content.addView(clickableInfoRow("Подотчёт",metric("totalAccountable",true),v->navigate("accountable:all")));
-        LinearLayout actions=h();String[] titles={"Приход","Расход","Передать"};for(int i=0;i<3;i++){final int action=i;Button b=smallButton(titles[i],GREEN);b.setOnClickListener(v->{if(action==2)transferDialog();else moneyDialog(action==0?"INCOME":"EXPENSE");});actions.addView(b,i==0?weight():weightMarginLeft());}content.addView(actions);
-        String[] filters={"Все","Приходы","Расходы","Переводы","По объектам","Монтажники","Маркетинг"};Button filter=primaryOutline(financeFilter+" ▾");filter.setOnClickListener(v->new AlertDialog.Builder(this).setItems(filters,(d,w)->{financeFilter=filters[w];showFinance();}).show());content.addView(filter);
-        content.addView(tv("API передаёт ограниченный список последних операций. Полнота истории за период пока не подтверждена.",11,MUTED,Typeface.NORMAL));
-        int count=0;for(MoneyTx t:txs){if(!financeMatches(t))continue;View row=attention(t.type.equals("TRANSFER")?"↔":"₽",t.date+" · "+t.title,t.sub+" · "+money(t.amount),t.type.equals("EXPENSE")?RED:GREEN,null);row.setOnClickListener(v->showOperation(t));content.addView(row);count++;}
-        if(count==0)content.addView(emptyState(hasData("income")?"Нет операций в выборке":"Недостаточно данных","Обновите данные или измените фильтр"));
+        if(!canFinance())return;
+        String mode=screen.startsWith("finance:")?screen.substring(8):screen.equals("kpi:expenses")?"expenses":"overview";
+        if(mode.equals("telegram")){showTelegramFinance();return;}
+        String title=mode.equals("income")?"Поступления":mode.equals("expenses")?"Расходы":mode.equals("analytics")?"Аналитика финансов":mode.equals("transfers")?"Передача денег":"Финансы";
+        beginScreen(true);appBar(title,mode.equals("overview")?"Полный контроль движения денег":"Данные за выбранный период");
+        LinearLayout tabs=h();String[][] entries={{"Обзор","finance"},{"Приход","finance:income"},{"Расход","finance:expenses"},{"Касса","accountable:all"}};
+        for(String[] entry:entries){TextView tab=tv(entry[0],11,screen.equals(entry[1])?WHITE:MUTED,Typeface.NORMAL);tab.setGravity(Gravity.CENTER);tab.setBackground(round(screen.equals(entry[1])?GREEN:softBg(),10));tab.setOnClickListener(v->navigate(entry[1]));tabs.addView(tab,new LinearLayout.LayoutParams(0,dp(36),1));}content.addView(tabs);spacer(8);periodSelector();
+        if(mode.equals("overview")){
+            content.addView(referenceMetric("wallet","Остаток подотчётных средств",metric("totalAccountable",true),"По последнему обновлению",GREEN,"accountable:all",false));spacer(8);
+        }
+        if(mode.equals("overview")||mode.equals("analytics")){
+            LinearLayout totals=h();totals.addView(referenceMetric("money","Поступления",metric("turnover",true),"Фактически получено",GREEN,"finance:income",false),weight());totals.addView(referenceMetric("wallet","Общие расходы",metric("expenses",true),"Без внутренних переводов",RED,"finance:expenses",false),weightMarginLeft());content.addView(totals);
+        }else if(!mode.equals("transfers")){
+            boolean income=mode.equals("income");content.addView(referenceMetric(income?"money":"wallet",income?"Всего поступлений":"Всего расходов",metric(income?"turnover":"expenses",true),"Подтверждённый показатель сервера",income?GREEN:RED,null,false));
+            content.addView(clickableInfoRow(income?"Средний платёж":"Средний расход",metric(income?"averagePayment":"averageExpense",true),v->unavailable("Расчёт показателя","Показатель должен учитывать все подтверждённые операции периода. Последние операции не используются вместо полной истории.")));
+        }
+        if(mode.equals("overview")){
+            sectionTitle("Быстрые действия",null,null);LinearLayout actions=h();String[] labels={"Приход","Расход","Передать","Подотчёт"};String[] icons={"plus","wallet","money","people"};int[] colors={GREEN,RED,GREEN,0xff9058dd};
+            for(int n=0;n<labels.length;n++){final int action=n;LinearLayout tile=v();tile.setGravity(Gravity.CENTER);tile.setPadding(dp(3),dp(8),dp(3),dp(8));tile.setBackground(round(softBg(),12));tile.addView(new ReferenceIcon(this,icons[n],colors[n]),new LinearLayout.LayoutParams(dp(24),dp(24)));TextView label=tv(labels[n],10,INK,Typeface.NORMAL);label.setGravity(Gravity.CENTER);tile.addView(label,new LinearLayout.LayoutParams(-1,dp(28)));tile.setContentDescription(labels[n]);tile.setOnClickListener(v->{if(action==0)moneyDialog("INCOME");else if(action==1)moneyDialog("EXPENSE");else if(action==2)navigate("finance:transfers");else navigate("accountable:all");});actions.addView(tile,n==0?weight():weightMarginLeft());}content.addView(actions);
+            content.addView(clickableInfoRow("Аналитика финансов","Статьи и динамика ›",v->navigate("finance:analytics")));
+            if(Stage1Rules.isAdmin(apiRole))content.addView(clickableInfoRow("Telegram — финансы","Настройки интеграции ›",v->navigate("finance:telegram")));
+        }
+        if(mode.equals("analytics")){
+            sectionTitle("Структура расходов",null,null);financeBreakdown("expenseCategories");
+            sectionTitle("Динамика движения денег",null,null);financeBreakdown("cashFlow");
+            sectionTitle("Поставщики",null,null);financeBreakdown("suppliers");return;
+        }
+        if(mode.equals("transfers")){Button transfer=primary("Новая передача");transfer.setOnClickListener(v->transferDialog());content.addView(transfer);content.addView(tv("Передача между подотчётными лицами не является расходом компании.",12,MUTED,Typeface.NORMAL));}
+        if(!mode.equals("overview")&&!mode.equals("transfers")){Button add=primaryOutline(mode.equals("income")?"Добавить приход":"Добавить расход");add.setOnClickListener(v->moneyDialog(mode.equals("income")?"INCOME":"EXPENSE"));content.addView(add);}
+        sectionTitle(mode.equals("overview")?"Последние операции":"История операций",null,null);
+        EditText query=edit("Поиск по объекту, статье, ответственному");if(!mode.equals("overview"))content.addView(query);
+        content.addView(tv("Показана доступная часть истории. Для полной сверки требуется загрузка всех операций периода.",11,MUTED,Typeface.NORMAL));
+        LinearLayout list=v();content.addView(list);Runnable fill=()->fillFinanceList(list,mode,query.getText().toString());query.addTextChangedListener(new SimpleWatcher(fill));fill.run();
+    }
+
+    private void fillFinanceList(LinearLayout list,String mode,String query){
+        list.removeAllViews();ArrayList<MoneyTx> rows=new ArrayList<>(txs);rows.sort((a,b)->{LocalDate da=readDate(a.date),db=readDate(b.date);return da==null?db==null?0:1:db==null?-1:db.compareTo(da);});int count=0,undated=0;
+        for(MoneyTx tx:rows){if(mode.equals("income")&&!tx.type.equals("INCOME")||mode.equals("expenses")&&!tx.type.equals("EXPENSE")||mode.equals("transfers")&&!tx.type.equals("TRANSFER"))continue;
+            LocalDate date=readDate(tx.date);if(date==null){undated++;continue;}if(!FinanceRules.inPeriod(date,currentPeriod,LocalDate.now()))continue;
+            if(!(tx.sub+" "+tx.title+" "+tx.responsible).toLowerCase(Locale.ROOT).contains(query.trim().toLowerCase(Locale.ROOT)))continue;
+            LinearLayout row=h();row.setPadding(dp(8),dp(9),dp(8),dp(9));row.setGravity(Gravity.CENTER_VERTICAL);row.setBackground(round(cardBg(),12));int tint=tx.type.equals("EXPENSE")?RED:tx.type.equals("TRANSFER")?BLUE:GREEN;
+            row.addView(new ReferenceIcon(this,tx.type.equals("TRANSFER")?"people":"wallet",tint),new LinearLayout.LayoutParams(dp(23),dp(23)));LinearLayout text=v();text.setPadding(dp(9),0,dp(8),0);TextView label=tv(tx.sub.isEmpty()?tx.title:tx.sub,12,INK,Typeface.BOLD);label.setMaxLines(2);text.addView(label);TextView detail=tv(tx.date+" · "+tx.title,10,MUTED,Typeface.NORMAL);detail.setMaxLines(2);text.addView(detail);row.addView(text,new LinearLayout.LayoutParams(0,-2,1));TextView amount=tv(money(tx.amount),13,tint,Typeface.BOLD);amount.setSingleLine(true);amount.setAutoSizeTextTypeUniformWithConfiguration(9,13,1,android.util.TypedValue.COMPLEX_UNIT_SP);row.addView(amount,new LinearLayout.LayoutParams(dp(104),dp(36)));row.setOnClickListener(v->showOperation(tx));list.addView(row);count++;if(mode.equals("overview")&&count==5)break;
+        }
+        if(count==0)list.addView(emptyState(hasData("income")||hasData("expenses")?"Нет операций в выборке":"Не заполнено","Измените период или обновите данные"));
+        if(undated>0)list.addView(tv("Операций без подтверждённой даты: "+undated+". Они не отнесены к периоду.",11,ORANGE,Typeface.NORMAL));applyInteractionFeedback(list);
+    }
+    private void financeBreakdown(String key){
+        JSONObject analytics=hasData("financeAnalytics")?snapshot.optJSONObject("financeAnalytics"):null;JSONArray rows=analytics==null?null:analytics.optJSONArray(key);
+        if(rows==null){content.addView(emptyState("Не заполнено","Сервер пока не передаёт полную детализацию за этот период"));return;}
+        if(rows.length()==0){content.addView(emptyState("Нет данных за период","По последнему ответу сервера"));return;}
+        for(int i=0;i<rows.length();i++){JSONObject item=rows.optJSONObject(i);if(item==null)continue;String name=item.optString("label","Не заполнено");content.addView(infoRow(name,item.opt("amount") instanceof Number?money(item.optLong("amount")):"Не заполнено"));}
+    }
+    private void showTelegramFinance(){
+        if(!Stage1Rules.isAdmin(apiRole)){navigate("finance");return;}beginScreen(true);appBar("Настройки интеграции","Telegram — финансы");
+        content.addView(infoRow("Статус","Не подключено"));content.addView(infoRow("Выбранный чат","Не заполнено"));
+        content.addView(tv("Подключение выполняется на сервере. Токен бота в приложении не хранится.",13,MUTED,Typeface.NORMAL));
+        for(String label:new String[]{"Отправлять поступления","Отправлять расходы","Отправлять передачи денег","Отправлять остатки на конец дня"}){Switch setting=new Switch(this);setting.setText(label);setting.setChecked(false);setting.setEnabled(false);content.addView(setting);}
+        content.addView(emptyState("Требуется подключение","После настройки backend здесь появятся выбранный чат, правила отправки и история доставки."));
+        Button test=primaryOutline("Тестовое сообщение");test.setEnabled(false);content.addView(test);
     }
 
     private void moneyDialog(String type){
@@ -829,7 +881,7 @@ public class MainActivity extends Activity {
         content.addView(clickableInfoRow("Уведомления","Центр событий",v->navigate("kpi:notifications")));
         content.addView(clickableInfoRow("Синхронизация",lastSyncText,v->showSyncDialog()));
         if(Stage1Rules.isAdmin(apiRole))for(String label:new String[]{"Система","Справочники","Интеграции","Финансовые настройки","Резервные копии и обновления","Журнал изменений"}){
-            content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))showBitrixSettings();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
+            content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))new AlertDialog.Builder(this).setTitle("Интеграции").setItems(new String[]{"Bitrix24","Telegram — финансы"},(d,w)->{if(w==0)showBitrixSettings();else navigate("finance:telegram");}).show();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
         }
         content.addView(infoRow("Версия","6.3.0-connected"));
         Button sync=primary("Синхронизировать сейчас");sync.setEnabled(!syncInProgress);sync.setOnClickListener(v->syncNow(true));content.addView(sync);
@@ -994,7 +1046,7 @@ public class MainActivity extends Activity {
         String[] items={"Обновить данные","Настройки","Поделиться сводкой","О приложении"};
         new AlertDialog.Builder(this).setTitle("Тёплая Компания").setItems(items,(d,w)->{if(w==0)syncNow(true);else if(w==1)navigate("settings");else if(w==2)shareSummary();else showAboutDialog();}).show();
     }
-    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.2.0\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
+    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.3.0-connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
     private void shareSummary(){
         if(!canFinance()){toast("Сводка недоступна для вашей роли");return;}
         Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,"Тёплая Компания — "+currentPeriod+"\nОборот: "+metric("turnover",true)+"\nРасходы: "+metric("expenses",true)+"\nПрибыль: "+metric("profit",true)+"\n"+lastSyncText);startActivity(Intent.createChooser(i,"Поделиться сводкой"));
@@ -1314,7 +1366,7 @@ public class MainActivity extends Activity {
         if(k!=null){
             String[] keys={"turnover","turnoverIntermediate","turnoverFinal","expenses","profit","objectsInWork","plannedObjects",
                     "leads","surveys","surveysCompleted","surveysScheduled","contracts","averageCheck","debt","plannedReceipts","remainingToReceive","objectsInWorkAmount",
-                    "accountableIgor","accountableKonstantin","totalAccountable"};
+                    "accountableIgor","accountableKonstantin","totalAccountable","averagePayment","averageExpense"};
             for(String key:keys) if(k.has(key)&&!k.isNull(key)&&k.opt(key) instanceof Number) liveKpis.put(key,k.getLong(key));
         }
 
@@ -1481,7 +1533,7 @@ public class MainActivity extends Activity {
         if(target.equals("main")||target.equals("profile")||target.equals("quick")||target.equals("calendar")||target.equals("settings")||target.equals("kpi:notifications"))return true;
         if(apiRole.isEmpty()||Stage1Rules.needsScopedData(apiRole)&&!scopedData)return false;
         if(target.equals("newEmployee"))return Stage1Rules.isAdmin(apiRole);
-        if(target.equals("finance")||target.equals("analytics")||target.startsWith("accountable:")||target.startsWith("kpi:"))return canFinance();
+        if(target.equals("finance")||target.startsWith("finance:")||target.equals("analytics")||target.startsWith("accountable:")||target.startsWith("kpi:"))return canFinance();
         return true;
     }
     private boolean hasData(String key){return liveSyncOk&&snapshotPeriod.equals(currentPeriod)&&snapshot.has(key)&&!snapshot.isNull(key);}
