@@ -174,6 +174,8 @@ public class MainActivity extends Activity {
             case "analytics": showAnalytics(); break;
             case "calendar": showCalendar(); break;
             case "settings": showSettings(); break;
+            case "profile": showProfile(); break;
+            case "quick": showQuickAccess(); break;
             case "engineers": showEngineers(); break;
             case "managers": showManagers(); break;
             case "surveys": showSurveys(); break;
@@ -227,7 +229,7 @@ public class MainActivity extends Activity {
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(24), dp(16), dp(24), dp(showBottomNav ? 92 : 24));
+        content.setPadding(dp(16), dp(10), dp(16), dp(showBottomNav ? 92 : 24));
         scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -243,42 +245,35 @@ public class MainActivity extends Activity {
                 loadingPulse=ObjectAnimator.ofFloat(mark,"alpha",0.35f,1f);loadingPulse.setDuration(650);
                 loadingPulse.setRepeatCount(ValueAnimator.INFINITE);loadingPulse.setRepeatMode(ValueAnimator.REVERSE);loadingPulse.start();
             }
-        }else if(liveSyncOk){content.addView(tv(lastSyncText,11,MUTED,Typeface.NORMAL));}
+        }
         content.post(()->applyInteractionFeedback(root));
     }
 
     private void addBottomNav() {
-        LinearLayout nav = new LinearLayout(this);
-        nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(6), dp(5), dp(6), dp(5));
-        nav.setBackgroundColor(cardBg());
-        nav.setElevation(dp(14));
-
-        String[][] items = {
-                {"⌂","Главная","main"},
-                {"☑","План","calendar"},
-                {"+","Добавить","quickAdd"},
-                {"▥","Аналитика","analytics"},
-                {"⚙","Настройки","settings"}
-        };
-        for (String[] it : items) {
-            if(!canNavigate(it[2]) && !"quickAdd".equals(it[2])) continue;
-            LinearLayout box = new LinearLayout(this);
-            box.setOrientation(LinearLayout.VERTICAL);
-            box.setGravity(Gravity.CENTER);
-            box.setPadding(dp(4), dp(2), dp(4), dp(2));
-            boolean active = it[2].equals(screen) || ("main".equals(it[2]) && "main".equals(screen));
-            TextView icon = tv(it[0], it[2].equals("quickAdd") ? 28 : 22, active ? GREEN : MUTED, Typeface.BOLD);
-            TextView label = tv(it[1], 10, active ? GREEN : MUTED, Typeface.NORMAL);
-            icon.setGravity(Gravity.CENTER);label.setGravity(Gravity.CENTER);
-            box.addView(icon,new LinearLayout.LayoutParams(dp(32),dp(32)));box.addView(label);
-            if(active)box.setBackground(round(light(GREEN),18));
-            box.setOnClickListener(v -> { if ("quickAdd".equals(it[2])) showQuickAddDialog(); else navigate(it[2]); });
-            nav.addView(box, new LinearLayout.LayoutParams(0, dp(64), 1));
+        LinearLayout nav=h();nav.setPadding(dp(8),dp(6),dp(8),dp(6));nav.setBackgroundColor(cardBg());nav.setElevation(dp(9));
+        String[][] items={{"home","Главная","main"},{"calendar","План","calendar"},{"plus","Добавить","quickAdd"},{"bell","Уведомления","kpi:notifications"},{"profile","Профиль","profile"}};
+        for(String[] item:items){
+            boolean add=item[2].equals("quickAdd");
+            boolean active=item[2].equals(screen)||(item[2].equals("profile")&&screen.equals("settings"));
+            LinearLayout cell=v();cell.setGravity(Gravity.CENTER);cell.setContentDescription(item[1]);cell.setBackground(round(cardBg(),18));
+            if(add){
+                FrameLayout circle=new FrameLayout(this);circle.setBackground(round(GREEN,30));circle.setElevation(dp(3));
+                ReferenceIcon icon=new ReferenceIcon(this,"plus",WHITE);FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(dp(30),dp(30),Gravity.CENTER);circle.addView(icon,ip);
+                cell.addView(circle,new LinearLayout.LayoutParams(dp(54),dp(54)));
+            }else{
+                FrameLayout iconBox=new FrameLayout(this);ReferenceIcon icon=new ReferenceIcon(this,item[0],active?GREEN:MUTED);
+                iconBox.addView(icon,new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER));
+                if(item[0].equals("bell")&&hasData("attention")&&!liveAttention.isEmpty()){
+                    TextView badge=tv(String.valueOf(liveAttention.size()),8,WHITE,Typeface.BOLD);badge.setGravity(Gravity.CENTER);badge.setBackground(round(RED,9));
+                    iconBox.addView(badge,new FrameLayout.LayoutParams(dp(16),dp(16),Gravity.TOP|Gravity.END));
+                }
+                cell.addView(iconBox,new LinearLayout.LayoutParams(dp(38),dp(32)));
+                TextView label=tv(item[1],9,active?GREEN:MUTED,active?Typeface.BOLD:Typeface.NORMAL);label.setGravity(Gravity.CENTER);label.setSingleLine(true);
+                label.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);cell.addView(label,new LinearLayout.LayoutParams(-1,dp(19)));
+            }
+            cell.setOnClickListener(view->{if(add)showQuickAddDialog();else navigate(item[2]);});nav.addView(cell,new LinearLayout.LayoutParams(0,dp(60),1));
         }
-        FrameLayout.LayoutParams np = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(74), Gravity.BOTTOM);
-        root.addView(nav, np);
+        root.addView(nav,new FrameLayout.LayoutParams(-1,dp(74),Gravity.BOTTOM));
     }
 
     private void appBar(String title, String subtitle) {
@@ -300,33 +295,22 @@ public class MainActivity extends Activity {
     }
 
     private void approvedHeader() {
-        LinearLayout brandRow = h();
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.company_logo);
-        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        logo.setOnClickListener(v -> showAboutDialog());
-        brandRow.addView(logo,new LinearLayout.LayoutParams(dp(46),dp(46)));
-
-        LinearLayout b = v(); b.setPadding(dp(8),0,0,0);
-        b.addView(tv("ТЁПЛАЯ КОМПАНИЯ",17,GREEN_DARK,Typeface.BOLD));
-        b.addView(tv("Строим тепло вместе",11,MUTED,Typeface.NORMAL));
-        brandRow.addView(b,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
-
-        TextView bell = pillText("⋮",24,INK,softBg()); bell.setGravity(Gravity.CENTER); bell.setOnClickListener(v -> showScreenMenu());
-        brandRow.addView(bell,new LinearLayout.LayoutParams(dp(44),dp(44))); content.addView(brandRow);
-
-        LinearLayout hello = h();
-        View avatar=avatarView(); avatar.setOnClickListener(v->editProfileDialog());
-        hello.addView(avatar,new LinearLayout.LayoutParams(dp(54),dp(54)));
-        LinearLayout htxt = v(); htxt.setPadding(dp(10),0,0,0);
-        htxt.addView(tv("Добрый день,",12,MUTED,Typeface.NORMAL));
-        htxt.addView(tv(leaderName,20,INK,Typeface.BOLD));
-        htxt.addView(tv(demoRole,11,MUTED,Typeface.NORMAL));
-        hello.addView(htxt,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
-        LinearLayout date = v(); date.setGravity(Gravity.CENTER_VERTICAL);
-        date.addView(tv("Сегодня",11,MUTED,Typeface.NORMAL));
-        date.addView(tv(LocalDate.now().format(DateTimeFormatter.ofPattern("d MMM",new Locale("ru","RU"))),12,INK,Typeface.BOLD)); hello.addView(date);
-        LinearLayout.LayoutParams hp=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0); hp.setMargins(0,dp(8),0,dp(10)); content.addView(hello,hp);
+        LinearLayout row=h();row.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.company_logo);logo.setScaleType(ImageView.ScaleType.FIT_CENTER);logo.setContentDescription("Тёплая Компания");
+        row.addView(logo,new LinearLayout.LayoutParams(dp(36),dp(42)));
+        LinearLayout brand=v();brand.setPadding(dp(5),0,dp(7),0);brand.addView(tv("Тёплая\nКомпания",12,GREEN_DARK,Typeface.BOLD));brand.addView(tv("Строим тепло вместе",7,MUTED,Typeface.NORMAL));
+        row.addView(brand,new LinearLayout.LayoutParams(dp(99),-2));
+        LinearLayout greeting=v();greeting.addView(tv(ReferenceRules.greeting(java.time.LocalTime.now().getHour())+",",10,INK,Typeface.NORMAL));
+        TextView name=tv(leaderName,12,INK,Typeface.BOLD);name.setMaxLines(2);greeting.addView(name);
+        greeting.addView(tv(LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM, EEE",new Locale("ru","RU"))),8,MUTED,Typeface.NORMAL));
+        row.addView(greeting,new LinearLayout.LayoutParams(0,-2,1));
+        FrameLayout bell=new FrameLayout(this);bell.setBackground(round(cardBg(),16));bell.setContentDescription("Уведомления");bell.setOnClickListener(v->navigate("kpi:notifications"));
+        bell.addView(new ReferenceIcon(this,"bell",INK),new FrameLayout.LayoutParams(dp(23),dp(23),Gravity.CENTER));
+        if(hasData("attention")&&!liveAttention.isEmpty()){TextView badge=tv(String.valueOf(liveAttention.size()),8,WHITE,Typeface.BOLD);badge.setGravity(Gravity.CENTER);badge.setBackground(round(RED,9));bell.addView(badge,new FrameLayout.LayoutParams(dp(15),dp(15),Gravity.TOP|Gravity.END));}
+        row.addView(bell,new LinearLayout.LayoutParams(dp(44),dp(48)));
+        FrameLayout profile=new FrameLayout(this);profile.setContentDescription("Профиль");profile.setOnClickListener(v->navigate("profile"));profile.addView(avatarView(),new FrameLayout.LayoutParams(dp(34),dp(34),Gravity.CENTER));row.addView(profile,new LinearLayout.LayoutParams(dp(44),dp(48)));
+        TextView menu=tv("⋮",22,INK,Typeface.BOLD);menu.setGravity(Gravity.CENTER);menu.setBackground(round(cardBg(),12));menu.setContentDescription("Меню главной");menu.setOnClickListener(v->showScreenMenu());row.addView(menu,new LinearLayout.LayoutParams(dp(28),dp(48)));
+        content.addView(row);spacer(8);
     }
 
     private void periodSelector() {
@@ -409,28 +393,56 @@ public class MainActivity extends Activity {
 
     private void showMain(boolean fromNav){
         screen="main";beginScreen(true);approvedHeader();periodSelector();
-        if(!apiRole.isEmpty() && Stage1Rules.needsScopedData(apiRole) && !scopedData){
-            content.addView(emptyState("Доступ ожидает настройки","Сервер пока не передаёт данные, ограниченные вашей ролью. Общие данные компании скрыты."));return;
-        }
+        if(apiRole.isEmpty())content.addView(emptyState("Не заполнено","Подключите профиль и синхронизируйте данные"));
+        if(!apiRole.isEmpty()&&Stage1Rules.needsScopedData(apiRole)&&!scopedData){content.addView(emptyState("Доступ ожидает настройки","Данные вашей роли ещё не подготовлены. Обратитесь к администратору."));return;}
         if(canFinance()){
-            LinearLayout a=h();a.addView(kpiCard("₽","Оборот",metric("turnover",true),"Фактические поступления",GREEN,"kpi:turnover"),weight());
-            a.addView(kpiCard("↓","Расходы",metric("expenses",true),"Фактические расходы за период",RED,"kpi:expenses"),weightMarginLeft());content.addView(a);spacer(10);
+            LinearLayout first=h();first.addView(referenceMetric("money","Оборот",metric("turnover",true),"Фактические поступления",GREEN,"kpi:turnover",false),weight());
+            first.addView(referenceMetric("chart","Прибыль",metric("profit",true),"По данным учёта",GREEN,"kpi:profit",false),weightMarginLeft());content.addView(first);spacer(8);
+            LinearLayout second=h();second.addView(referenceMetric("wallet","Общие расходы",metric("expenses",true),"За выбранный период",RED,"kpi:expenses",false),weight());
+            second.addView(referenceMetric("objects","В работе",metric("objectsInWork",false),metric("objectsInWorkAmount",true),BLUE,"kpi:objects_work",false),weightMarginLeft());content.addView(second);
         }
-        LinearLayout b=h();
-        if(canFinance())b.addView(kpiCard("▥","Прибыль",metric("profit",true),"Операционная прибыль",BLUE,"kpi:profit"),weight());
-        b.addView(kpiCard("⌂","Объекты",hasData("objects")?String.valueOf(objects.size()):"Не заполнено","Все актуальные объекты",GREEN,"objects"),canFinance()?weightMarginLeft():weight());content.addView(b);spacer(10);
-        if(canFinance())content.addView(kpiCard("◷","Планируется поступление",plannedMetric(),"Будущие неоплаченные этапы ТЗ",BLUE,"kpi:plan_income"));
-        sectionTitle("Ключевые показатели",null,null);
-        String[][] metrics={{"Лиды","leads","kpi:leads"},{"Замеры","surveys","surveys"},{"Договоры","contracts","kpi:contracts"},{"Средний чек","averageCheck","kpi:avg"},{"Дебиторка","debt","kpi:debt"}};
-        LinearLayout row=null;int n=0;
-        for(String[] item:metrics){if(!canNavigate(item[2]))continue;if(n%2==0){row=h();content.addView(row);spacer(8);}row.addView(miniCard("",item[0],metric(item[1],item[1].equals("averageCheck")||item[1].equals("debt")),GREEN,item[2]),n++%2==0?weight():weightMarginLeft());}
-        sectionTitle("Быстрый доступ",null,null);
-        String[][] links={{"⌂","Объекты","objects"},{"♟","Монтажники","installers"},{"▤","Инженеры","engineers"},{"●","Менеджеры","managers"},{"₽","Финансы","finance"},{"▥","Аналитика","analytics"},{"▦","Календарь","calendar"},{"⚙","Настройки","settings"}};
-        n=0;for(String[] item:links){if(!canNavigate(item[2]))continue;if(n%2==0){row=h();content.addView(row);spacer(8);}row.addView(quickCard(item[0],item[1],GREEN,item[2]),n++%2==0?weight():weightMarginLeft());}
-        sectionTitle("Сегодня требует внимания","Все уведомления",v->navigate("kpi:notifications"));
-        View summary=attention("!",hasData("attention")?liveAttention.size()+" событий":"Недостаточно данных",attentionExpanded?"Свернуть":"Показать кратко",ORANGE,null);
-        summary.setOnClickListener(v->{attentionExpanded=!attentionExpanded;render();});content.addView(summary);
-        if(attentionExpanded)for(int i=0;i<Math.min(3,liveAttention.size());i++){AttentionItem a=liveAttention.get(i);content.addView(attention("!",a.title,a.subtitle,"red".equals(a.severity)?RED:ORANGE,a.target));}
+        sectionTitle("Быстрый доступ","Все разделы ›",v->navigate("quick"));addQuickGrid();
+        sectionTitle("Ключевые показатели","Все показатели ›",v->navigate("analytics"));
+        String[][] items={{"people","Лиды","leads","kpi:leads"},{"survey","Замеры проведено","surveysCompleted","kpi:surveys_completed"},{"calendar","Замеры назначено","surveysScheduled","kpi:surveys_scheduled"},{"chart","Средний чек","averageCheck","kpi:avg"},{"alert","Дебиторка","debt","kpi:debt"},{"wallet","Расходы","expenses","kpi:expenses"}};
+        int[] colors={BLUE,GREEN,ORANGE,0xff9058dd,RED,ORANGE};
+        LinearLayout row=null;int count=0;
+        for(int i=0;i<items.length;i++){String[] item=items[i];if(!canNavigate(item[3]))continue;if(count%2==0){row=h();content.addView(row);spacer(7);}row.addView(referenceMetric(item[0],item[1],metric(item[2],i>=3),"",colors[i],item[3],true),count++%2==0?weight():weightMarginLeft());}
+        sectionTitle("Требует внимания","Все события ›",v->navigate("kpi:notifications"));
+        if(liveAttention.isEmpty()){content.addView(emptyState(hasData("attention")?"Событий нет":"Недостаточно данных",hasData("attention")?"По последней синхронизации":"Обновите данные, чтобы увидеть события"));}
+        else{
+            HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);LinearLayout events=h();
+            for(AttentionItem item:liveAttention){if(item.target!=null&&!canNavigate(item.target))continue;int tint="red".equals(item.severity)?RED:ORANGE;
+                LinearLayout card=v();card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(round(light(tint),18));
+                card.addView(new ReferenceIcon(this,"alert",tint),new LinearLayout.LayoutParams(dp(22),dp(22)));
+                TextView title=tv(item.title,12,INK,Typeface.BOLD);title.setMaxLines(3);card.addView(title);TextView sub=tv(item.subtitle,10,MUTED,Typeface.NORMAL);sub.setMaxLines(3);card.addView(sub);
+                card.setOnClickListener(v->{if(item.target!=null&&!item.target.isEmpty())navigate(item.target);});LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(dp(156),dp(144));cp.setMargins(0,0,dp(8),0);events.addView(card,cp);
+            }scroll.addView(events);content.addView(scroll);
+        }
+        TextView sync=tv(lastSyncText,10,MUTED,Typeface.NORMAL);sync.setPadding(0,dp(12),0,dp(8));sync.setOnClickListener(v->showSyncDialog());content.addView(sync);
+    }
+
+
+    private View referenceMetric(String icon,String label,String value,String note,int tint,String target,boolean compact){
+        LinearLayout card=v();card.setPadding(dp(10),dp(10),dp(10),dp(10));card.setBackground(round(light(tint),18));card.setMinimumHeight(dp(compact?84:108));
+        LinearLayout top=h();FrameLayout symbol=new FrameLayout(this);symbol.setBackground(round(tint,9));symbol.addView(new ReferenceIcon(this,icon,WHITE),new FrameLayout.LayoutParams(dp(21),dp(21),Gravity.CENTER));top.addView(symbol,new LinearLayout.LayoutParams(dp(31),dp(34)));
+        LinearLayout text=v();text.setPadding(dp(8),0,0,0);TextView title=tv(label,11,INK,Typeface.BOLD);title.setMaxLines(2);text.addView(title);
+        TextView amount=tv(value,compact?16:20,INK,Typeface.BOLD);amount.setMaxLines(1);amount.setAutoSizeTextTypeUniformWithConfiguration(10,compact?16:20,1,android.util.TypedValue.COMPLEX_UNIT_SP);text.addView(amount,new LinearLayout.LayoutParams(-1,dp(28)));top.addView(text,new LinearLayout.LayoutParams(0,-2,1));
+        top.addView(new ReferenceIcon(this,"arrow",tint),new LinearLayout.LayoutParams(dp(10),dp(16)));card.addView(top);
+        if(!compact){TextView detail=tv(note,10,MUTED,Typeface.NORMAL);detail.setPadding(dp(39),dp(5),0,0);detail.setMaxLines(2);card.addView(detail,new LinearLayout.LayoutParams(-1,dp(31)));}
+        card.setContentDescription(label+": "+value);if(target!=null)card.setOnClickListener(v->navigate(target));return card;
+    }
+    private void addQuickGrid(){
+        String[][] links={{"objects","Объекты","objects"},{"helmet","Монтажники","installers"},{"engineer","Инженеры","engineers"},{"people","Менеджеры","managers"},{"money","Финансы","finance"},{"chart","Аналитика","analytics"},{"calendar","Календарь","calendar"},{"settings","Настройки","settings"}};
+        int[] colors={GREEN,ORANGE,BLUE,0xff9058dd,GREEN,BLUE,RED,MUTED};LinearLayout row=null;
+        for(int i=0;i<links.length;i++){String[] item=links[i];if(i%4==0){row=h();content.addView(row);spacer(6);}LinearLayout cell=v();cell.setPadding(dp(3),dp(8),dp(3),dp(8));cell.setGravity(Gravity.CENTER);cell.setBackground(round(softBg(),12));cell.addView(new ReferenceIcon(this,item[0],colors[i]),new LinearLayout.LayoutParams(dp(27),dp(27)));
+            TextView text=tv(item[1],9,INK,Typeface.BOLD);text.setGravity(Gravity.CENTER);text.setSingleLine(true);text.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);cell.addView(text,new LinearLayout.LayoutParams(-1,dp(25)));cell.setContentDescription(item[1]);cell.setOnClickListener(v->navigate(item[2]));row.addView(cell,i%4==0?weight():weightMarginLeft());}
+    }
+    private void showQuickAccess(){beginScreen(true);appBar("Быстрый доступ","Разделы приложения");
+        String[][] links={{"Объекты","objects"},{"Монтажники","installers"},{"Инженеры","engineers"},{"Менеджеры","managers"},{"Финансы","finance"},{"Аналитика","analytics"},{"Календарь","calendar"},{"Настройки","settings"}};
+        for(String[] item:links)if(canNavigate(item[1]))content.addView(clickableInfoRow(item[0],"Открыть ›",v->navigate(item[1])));
+    }
+    private void showProfile(){beginScreen(true);appBar("Профиль",demoRole);LinearLayout hero=v();hero.setGravity(Gravity.CENTER);View avatar=avatarView();avatar.setOnClickListener(v->editProfileDialog());hero.addView(avatar,new LinearLayout.LayoutParams(dp(74),dp(74)));hero.addView(tv(leaderName,22,INK,Typeface.BOLD));hero.addView(tv(demoRole,12,MUTED,Typeface.NORMAL));content.addView(hero);spacer(18);
+        content.addView(clickableInfoRow("Личные данные","Имя и фотография ›",v->editProfileDialog()));content.addView(clickableInfoRow("Настройки","Интерфейс и приложение ›",v->navigate("settings")));content.addView(clickableInfoRow("Уведомления","Центр событий ›",v->navigate("kpi:notifications")));content.addView(clickableInfoRow("Синхронизация",lastSyncText,v->showSyncDialog()));content.addView(clickableInfoRow("О приложении","Версия и сведения ›",v->showAboutDialog()));
     }
 
     // ---------- objects ----------
@@ -819,7 +831,7 @@ public class MainActivity extends Activity {
         if(Stage1Rules.isAdmin(apiRole))for(String label:new String[]{"Система","Справочники","Интеграции","Финансовые настройки","Резервные копии и обновления","Журнал изменений"}){
             content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))showBitrixSettings();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
         }
-        content.addView(infoRow("Версия","6.2.0-stage1"));
+        content.addView(infoRow("Версия","6.3.0-connected"));
         Button sync=primary("Синхронизировать сейчас");sync.setEnabled(!syncInProgress);sync.setOnClickListener(v->syncNow(true));content.addView(sync);
         Button pair=primaryOutline("Подключение устройства");pair.setOnClickListener(v->showPairingDialog());content.addView(pair);
     }
@@ -828,6 +840,7 @@ public class MainActivity extends Activity {
 
     private void showKpiDetail(String key){
         if(key.equals("notifications")){showNotifications();return;}
+        if(key.equals("surveys_completed")||key.equals("surveys_scheduled")){showSurveys();return;}
         if(key.equals("expense_object")){showFinance();moneyDialog("EXPENSE");return;}
         beginScreen(true);String title=humanKpi(key);appBar(title,"Детализация показателя · "+currentPeriod);content.addView(kpiCard("▥",title,kpiValue(key),"Каждая строка ведёт к первичной записи",GREEN,null));sectionTitle("Расшифровка",null,null);
         if(kpiValue(key).equals("Не заполнено")||kpiValue(key).equals("Недостаточно данных")){
@@ -892,7 +905,7 @@ public class MainActivity extends Activity {
     private View infoRow(String left,String right){
         LinearLayout r=h();r.setPadding(dp(10),dp(9),dp(10),dp(9));r.setGravity(Gravity.CENTER_VERTICAL);r.setBackground(round(WHITE,13));
         r.addView(tv(left,11,MUTED,Typeface.NORMAL),new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
-        TextView v=tv(right,11,INK,Typeface.BOLD);v.setGravity(Gravity.RIGHT);r.addView(v,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
+        TextView v=tv(right==null||right.trim().isEmpty()?"Не заполнено":right,11,INK,Typeface.BOLD);v.setGravity(Gravity.RIGHT);r.addView(v,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
         LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(5));r.setLayoutParams(p);return r;
     }
 
@@ -1300,7 +1313,7 @@ public class MainActivity extends Activity {
         JSONObject k=root.optJSONObject("kpis");
         if(k!=null){
             String[] keys={"turnover","turnoverIntermediate","turnoverFinal","expenses","profit","objectsInWork","plannedObjects",
-                    "leads","surveys","contracts","averageCheck","debt","plannedReceipts","remainingToReceive",
+                    "leads","surveys","surveysCompleted","surveysScheduled","contracts","averageCheck","debt","plannedReceipts","remainingToReceive","objectsInWorkAmount",
                     "accountableIgor","accountableKonstantin","totalAccountable"};
             for(String key:keys) if(k.has(key)&&!k.isNull(key)&&k.opt(key) instanceof Number) liveKpis.put(key,k.getLong(key));
         }
@@ -1465,7 +1478,7 @@ public class MainActivity extends Activity {
 
     private boolean canFinance(){return Stage1Rules.canSeeCompanyFinance(apiRole,financeGranted);}
     private boolean canNavigate(String target){
-        if(target.equals("main")||target.equals("settings")||target.equals("kpi:notifications"))return true;
+        if(target.equals("main")||target.equals("profile")||target.equals("quick")||target.equals("calendar")||target.equals("settings")||target.equals("kpi:notifications"))return true;
         if(apiRole.isEmpty()||Stage1Rules.needsScopedData(apiRole)&&!scopedData)return false;
         if(target.equals("newEmployee"))return Stage1Rules.isAdmin(apiRole);
         if(target.equals("finance")||target.equals("analytics")||target.startsWith("accountable:")||target.startsWith("kpi:"))return canFinance();
