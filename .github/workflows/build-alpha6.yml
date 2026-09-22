@@ -35,7 +35,7 @@ jobs:
       - name: Static contracts
         run: |
           grep -q "applicationId 'ru.teplayakompaniya.tk4'" app/build.gradle
-          grep -q "versionCode 602001" app/build.gradle
+          grep -q "versionCode 603001" app/build.gradle
           grep -q 'AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
           if grep -R 'WebView\|Log\.\|System.out.print' app/src/main/java; then exit 1; fi
       - name: Compile, unit tests, lint and APKs
@@ -64,14 +64,14 @@ jobs:
           previous=''
           if [ -n "$previous_file" ]; then previous=$($signer verify --print-certs "$previous_file" | grep 'certificate SHA-256 digest'); fi
           if [ -n "$previous" ] && [ "$current" = "$previous" ]; then
-            echo 'artifact=TeplayaCompany-v6.2.0-stage1-compatible' >> "$GITHUB_OUTPUT"
+            echo 'artifact=TeplayaCompany-v6.3.0-connected-compatible' >> "$GITHUB_OUTPUT"
             echo 'Certificate matches Alpha 6.1; original APK update still requires device validation.' > delivery/COMPATIBILITY.txt
           else
-            echo 'artifact=TeplayaCompany-v6.2.0-stage1-QA-ONLY' >> "$GITHUB_OUTPUT"
+            echo 'artifact=TeplayaCompany-v6.3.0-connected-QA-ONLY' >> "$GITHUB_OUTPUT"
             echo 'NOT AN UPDATE FOR THE INSTALLED ALPHA. Original signing key is unavailable or does not match. Do not uninstall the current app. Data migration test uses a baseline rebuilt with the same CI key; it does not prove compatibility with the original APK.' > delivery/COMPATIBILITY.txt
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.2.0-stage1.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.2.0-stage1-unsigned.apk
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.3.0-connected.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.3.0-connected-unsigned.apk
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
