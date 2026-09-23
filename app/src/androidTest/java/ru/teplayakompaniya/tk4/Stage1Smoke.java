@@ -37,6 +37,7 @@ public final class Stage1Smoke extends Instrumentation {
             capture("01-unpaired");
             onUi(() -> {
                 JSONObject fixture = new JSONObject("{\"ok\":true,\"serverTime\":\"OFFLINE QA FIXTURE\",\"user\":{\"id\":\"QA\",\"name\":\"Тестовый профиль QA\",\"role\":\"OWNER\",\"finance\":true},\"kpis\":{\"turnover\":120000,\"expenses\":150000,\"profit\":-30000,\"objectsInWork\":0,\"plannedObjects\":0,\"leads\":0,\"surveys\":0,\"contracts\":0,\"averageCheck\":0,\"debt\":0,\"plannedReceipts\":0},\"objects\":[],\"employees\":[],\"surveys\":[],\"income\":[],\"expenses\":[],\"techTasks\":[],\"dayPlans\":[],\"assignments\":[],\"paymentPlan\":[],\"calendar\":[],\"media\":[],\"attention\":[]}");
+                fixture.getJSONObject("kpis").put("closedProfit",-30000);
                 fixture.put("accountable",new JSONObject("{\"Игорь\":{\"balance\":-35000,\"expenses\":135000,\"receivedFromCompany\":100000}}"));
                 fixture.put("objects",new org.json.JSONArray("[{\"id\":\"QA-OBJECT\",\"address\":\"Тестовый объект QA\",\"client\":\"QA\",\"status\":\"Подтверждён\",\"planStart\":\"2026-09-18\",\"planEnd\":\"2026-09-21\",\"contract\":50000,\"paid\":0}]"));
                 Method apply=MainActivity.class.getDeclaredMethod("applyBootstrap",JSONObject.class);apply.setAccessible(true);apply.invoke(activity,fixture);
