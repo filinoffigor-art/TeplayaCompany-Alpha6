@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ main, codex/stage1 ]
-    paths: [ 'app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/build-alpha6.yml', 'scripts/**' ]
+    paths: [ 'app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/build-alpha6.yml', 'scripts/**', 'backend/**' ]
 permissions:
   contents: read
   actions: read
@@ -35,9 +35,13 @@ jobs:
       - name: Static contracts
         run: |
           grep -q "applicationId 'ru.teplayakompaniya.tk4'" app/build.gradle
-          grep -q "versionCode 603001" app/build.gradle
+          grep -q "versionCode 603002" app/build.gradle
           grep -q 'AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
           if grep -R 'WebView\|Log\.\|System.out.print' app/src/main/java; then exit 1; fi
+      - name: Backend and migration contracts
+        run: |
+          node scripts/operational-api-test.cjs
+          python3 scripts/test-normalize-september.py
       - name: Compile, unit tests, lint and APKs
         run: ./gradle-8.11.1/bin/gradle testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease --no-daemon --stacktrace
       - name: Build baseline with the same CI key for data migration test
@@ -64,14 +68,14 @@ jobs:
           previous=''
           if [ -n "$previous_file" ]; then previous=$($signer verify --print-certs "$previous_file" | grep 'certificate SHA-256 digest'); fi
           if [ -n "$previous" ] && [ "$current" = "$previous" ]; then
-            echo 'artifact=TeplayaCompany-v6.3.0-connected-compatible' >> "$GITHUB_OUTPUT"
+            echo 'artifact=TeplayaCompany-v6.3.1-connected-compatible' >> "$GITHUB_OUTPUT"
             echo 'Certificate matches Alpha 6.1; original APK update still requires device validation.' > delivery/COMPATIBILITY.txt
           else
-            echo 'artifact=TeplayaCompany-v6.3.0-connected-QA-ONLY' >> "$GITHUB_OUTPUT"
+            echo 'artifact=TeplayaCompany-v6.3.1-connected-QA-ONLY' >> "$GITHUB_OUTPUT"
             echo 'NOT AN UPDATE FOR THE INSTALLED ALPHA. Original signing key is unavailable or does not match. Do not uninstall the current app. Data migration test uses a baseline rebuilt with the same CI key; it does not prove compatibility with the original APK.' > delivery/COMPATIBILITY.txt
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.3.0-connected.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.3.0-connected-unsigned.apk
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.3.1-connected.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.3.1-connected-unsigned.apk
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
