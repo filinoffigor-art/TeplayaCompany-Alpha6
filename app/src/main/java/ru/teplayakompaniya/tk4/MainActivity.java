@@ -398,7 +398,7 @@ public class MainActivity extends Activity {
         if(!apiRole.isEmpty()&&Stage1Rules.needsScopedData(apiRole)&&!scopedData){content.addView(emptyState("Доступ ожидает настройки","Данные вашей роли ещё не подготовлены. Обратитесь к администратору."));return;}
         if(canFinance()){
             LinearLayout first=h();first.addView(referenceMetric("money","Оборот",metric("turnover",true),"Фактические поступления",GREEN,"kpi:turnover",false),weight());
-            first.addView(referenceMetric("chart","Прибыль",metric("profit",true),"По данным учёта",GREEN,"kpi:profit",false),weightMarginLeft());content.addView(first);spacer(8);
+            first.addView(referenceMetric("chart","Прибыль",metric("profit",true),"По закрытым объектам",GREEN,"kpi:profit",false),weightMarginLeft());content.addView(first);spacer(8);
             LinearLayout second=h();second.addView(referenceMetric("wallet","Общие расходы",metric("expenses",true),"За выбранный период",RED,"kpi:expenses",false),weight());
             second.addView(referenceMetric("objects","В работе",metric("objectsInWork",false),metric("objectsInWorkAmount",true),BLUE,"kpi:objects_work",false),weightMarginLeft());content.addView(second);
         }
@@ -667,7 +667,7 @@ public class MainActivity extends Activity {
         if(mode.equals("transfers")){Button transfer=primary("Новая передача");transfer.setOnClickListener(v->transferDialog());content.addView(transfer);content.addView(tv("Передача между подотчётными лицами не является расходом компании.",12,MUTED,Typeface.NORMAL));}
         if(!mode.equals("overview")&&!mode.equals("transfers")){Button add=primaryOutline(mode.equals("income")?"Добавить приход":"Добавить расход");add.setOnClickListener(v->moneyDialog(mode.equals("income")?"INCOME":"EXPENSE"));content.addView(add);}
         sectionTitle(mode.equals("overview")?"Последние операции":"История операций",null,null);
-        EditText query=edit("Поиск по объекту, статье, ответственному");if(!mode.equals("overview"))content.addView(query);
+        EditText query=edit("Поиск по объекту, статье, ответственному");query.setMinimumHeight(dp(48));if(!mode.equals("overview"))content.addView(query);
         content.addView(tv("Показана доступная часть истории. Для полной сверки требуется загрузка всех операций периода.",11,MUTED,Typeface.NORMAL));
         LinearLayout list=v();content.addView(list);Runnable fill=()->fillFinanceList(list,mode,query.getText().toString());query.addTextChangedListener(new SimpleWatcher(fill));fill.run();
     }
@@ -907,7 +907,7 @@ public class MainActivity extends Activity {
                 for(MoneyTx t:txs)if(t.type.equals("INCOME") && turnoverMatches(key,t))content.addView(clickableInfoRow(t.sub,t.title+" · "+money(t.amount),v->showOperation(t)));break;
             case "expenses":financeFilter="Расходы";showFinance();break;
             case "profit":
-                content.addView(infoRow("Оборот",metric("turnover",true)));content.addView(infoRow("Расходы",metric("expenses",true)));content.addView(infoRow("Операционная прибыль",metric("profit",true)));content.addView(clickableInfoRow("Прибыль по закрытым объектам","Открыть объекты",v->navigate("objects")));break;
+                content.addView(infoRow("Прибыль закрытых объектов",metric("profit",true)));content.addView(tv("Фактические поступления минус подтверждённые расходы и распределённые затраты закрытых объектов. Денежный поток компании не заменяет прибыль.",13,MUTED,Typeface.NORMAL));content.addView(clickableInfoRow("Закрытые объекты","Открыть объекты",v->navigate("objects")));break;
             case "planned_objects":
                 content.addView(infoRow("Запланированы",String.valueOf(countStatus("Запланирован"))));content.addView(infoRow("Подтверждены",String.valueOf(countStatus("Подтверждён")+countStatus("Подтверждён клиентом"))));content.addView(infoRow("Готовы к монтажу",String.valueOf(countStatus("Готов к монтажу"))));for(ObjectItem o:objects)if(o.status.equals("Запланирован")||o.status.equals("Подтверждён")||o.status.equals("Подтверждён клиентом")||o.status.equals("Готов к монтажу"))content.addView(clickableInfoRow(o.address,o.status,v->navigate("object:"+o.id)));break;
             case "objects_work":
@@ -1364,7 +1364,7 @@ public class MainActivity extends Activity {
         liveKpis.clear();
         JSONObject k=root.optJSONObject("kpis");
         if(k!=null){
-            String[] keys={"turnover","turnoverIntermediate","turnoverFinal","expenses","profit","objectsInWork","plannedObjects",
+            String[] keys={"turnover","turnoverIntermediate","turnoverFinal","expenses","profit","closedProfit","objectsInWork","plannedObjects",
                     "leads","surveys","surveysCompleted","surveysScheduled","contracts","averageCheck","debt","plannedReceipts","remainingToReceive","objectsInWorkAmount",
                     "accountableIgor","accountableKonstantin","totalAccountable","averagePayment","averageExpense"};
             for(String key:keys) if(k.has(key)&&!k.isNull(key)&&k.opt(key) instanceof Number) liveKpis.put(key,k.getLong(key));
@@ -1538,6 +1538,8 @@ public class MainActivity extends Activity {
     }
     private boolean hasData(String key){return liveSyncOk&&snapshotPeriod.equals(currentPeriod)&&snapshot.has(key)&&!snapshot.isNull(key);}
     private String metric(String key,boolean currency){
+        // Legacy v2.1 profit is merely turnover minus cash expenses, not profit of closed objects.
+        if(key.equals("profit"))key="closedProfit";
         if(!hasData("kpis")||!liveKpis.containsKey(key))return "Не заполнено";
         if((currentPeriod.equals("Год")||currentPeriod.equals("Квартал"))&&!snapshot.has("coverage"))return "Недостаточно данных";
         return currency?money(liveKpis.get(key)):String.valueOf(liveKpis.get(key));
