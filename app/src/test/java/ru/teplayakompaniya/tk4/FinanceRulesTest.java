@@ -1,65 +1,28 @@
 package ru.teplayakompaniya.tk4;
 
-import static org.junit.Assert.*;
 import java.time.LocalDate;
-import java.util.Arrays;
 import org.junit.Test;
+import static org.junit.Assert.*;
 
 public class FinanceRulesTest {
-    @Test public void turnoverCountsOnlyIncome() {
-        assertEquals(300L, FinanceRules.turnover(Arrays.asList(
-                new FinanceRules.MoneyOperation("INCOME", 100),
-                new FinanceRules.MoneyOperation("TRANSFER", 500),
-                new FinanceRules.MoneyOperation("EXPENSE", 50),
-                new FinanceRules.MoneyOperation("INCOME", 200))));
+    private final LocalDate today=LocalDate.of(2026,9,22);
+    @Test public void weekStartsOnMondayAndExcludesNextWeek(){
+        assertTrue(FinanceRules.inPeriod(LocalDate.of(2026,9,21),"Неделя",today));
+        assertFalse(FinanceRules.inPeriod(LocalDate.of(2026,9,20),"Неделя",today));
+        assertFalse(FinanceRules.inPeriod(LocalDate.of(2026,9,28),"Неделя",today));
     }
-
-    @Test public void transferIsNotExpense() {
-        assertEquals(50L, FinanceRules.companyExpense(Arrays.asList(
-                new FinanceRules.MoneyOperation("TRANSFER", 500),
-                new FinanceRules.MoneyOperation("EXPENSE", 50))));
+    @Test public void quarterIsCalendarQuarter(){
+        assertTrue(FinanceRules.inPeriod(LocalDate.of(2026,7,1),"Квартал",today));
+        assertFalse(FinanceRules.inPeriod(LocalDate.of(2026,6,30),"Квартал",today));
+        assertFalse(FinanceRules.inPeriod(LocalDate.of(2026,10,1),"Квартал",today));
     }
-
-    @Test public void profitIsTurnoverMinusExpense() {
-        assertEquals(425L, FinanceRules.operatingProfit(Arrays.asList(
-                new FinanceRules.MoneyOperation("INCOME", 1245),
-                new FinanceRules.MoneyOperation("EXPENSE", 820),
-                new FinanceRules.MoneyOperation("TRANSFER", 1000))));
+    @Test public void incompleteDateIsNotTodaysOperation(){assertFalse(FinanceRules.inPeriod(null,"Сегодня",today));}
+    @Test public void yearBoundary(){
+        assertTrue(FinanceRules.inPeriod(LocalDate.of(2026,12,31),"Год",today));
+        assertFalse(FinanceRules.inPeriod(LocalDate.of(2027,1,1),"Год",today));
     }
-
-    @Test public void debtOnlyOverdueUnpaidPart() {
-        LocalDate today = LocalDate.of(2026, 9, 14);
-        assertEquals(150L, FinanceRules.debt(Arrays.asList(
-                new FinanceRules.PaymentStage(LocalDate.of(2026, 9, 12), 200, 50),
-                new FinanceRules.PaymentStage(LocalDate.of(2026, 9, 16), 300, 0),
-                new FinanceRules.PaymentStage(LocalDate.of(2026, 9, 10), 100, 100)), today));
-    }
-
-    @Test public void plannedReceiptsOnlyTodayAndFuture() {
-        LocalDate today = LocalDate.of(2026, 9, 14);
-        assertEquals(350L, FinanceRules.plannedReceipts(Arrays.asList(
-                new FinanceRules.PaymentStage(LocalDate.of(2026, 9, 12), 200, 50),
-                new FinanceRules.PaymentStage(LocalDate.of(2026, 9, 14), 100, 50),
-                new FinanceRules.PaymentStage(LocalDate.of(2026, 9, 16), 300, 0)), today));
-    }
-
-    @Test public void remainingCannotBeNegative() {
-        assertEquals(0L, FinanceRules.remainingToReceive(500, 600));
-        assertEquals(200L, FinanceRules.remainingToReceive(500, 300));
-    }
-
-    @Test public void installerDueSubtractsPayments() {
-        assertEquals(62000L, FinanceRules.installerDue(92000L, 30000L));
-    }
-
-    @Test public void internalTransferPreservesCompanyTotal() {
-        long a = FinanceRules.accountableBalance(420000, 0, 0, 0, 50000);
-        long b = FinanceRules.accountableBalance(386000, 0, 0, 50000, 0);
-        assertEquals(806000L, a + b);
-    }
-
-    @Test public void close100RequiresAllFourConditions() {
-        assertTrue(FinanceRules.canClose100(true,true,true,true));
-        assertFalse(FinanceRules.canClose100(true,true,true,false));
+    @Test public void monthAndDayAreNotInterchangeable(){
+        assertTrue(FinanceRules.inPeriod(today.minusDays(1),"Месяц",today));
+        assertFalse(FinanceRules.inPeriod(today.minusDays(1),"Сегодня",today));
     }
 }

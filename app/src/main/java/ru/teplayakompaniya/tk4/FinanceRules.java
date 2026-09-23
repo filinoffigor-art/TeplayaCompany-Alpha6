@@ -1,75 +1,23 @@
 package ru.teplayakompaniya.tk4;
 
 import java.time.LocalDate;
-import java.util.List;
+import java.time.DayOfWeek;
+import java.time.temporal.TemporalAdjusters;
 
-public final class FinanceRules {
+/** Period filtering of an explicitly incomplete API list; never a source of KPI totals. */
+final class FinanceRules {
     private FinanceRules() {}
-
-    public static long turnover(List<MoneyOperation> ops) {
-        long total = 0;
-        for (MoneyOperation op : ops) if ("INCOME".equals(op.type)) total += op.amount;
-        return total;
-    }
-
-    public static long companyExpense(List<MoneyOperation> ops) {
-        long total = 0;
-        for (MoneyOperation op : ops) if ("EXPENSE".equals(op.type)) total += op.amount;
-        return total;
-    }
-
-    public static long operatingProfit(List<MoneyOperation> ops) {
-        return turnover(ops) - companyExpense(ops);
-    }
-
-    public static long debt(List<PaymentStage> stages, LocalDate today) {
-        long total = 0;
-        for (PaymentStage s : stages) {
-            long unpaid = Math.max(0, s.plannedAmount - s.actualAmount);
-            if (unpaid > 0 && s.plannedDate.isBefore(today)) total += unpaid;
+    static boolean inPeriod(LocalDate date, String period, LocalDate today) {
+        if (date == null || today == null) return false;
+        LocalDate start, end;
+        switch (period) {
+            case "Сегодня": start=today; end=start.plusDays(1); break;
+            case "Неделя": start=today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)); end=start.plusWeeks(1); break;
+            case "Месяц": start=today.withDayOfMonth(1); end=start.plusMonths(1); break;
+            case "Квартал": start=LocalDate.of(today.getYear(),((today.getMonthValue()-1)/3)*3+1,1); end=start.plusMonths(3); break;
+            case "Год": start=today.withDayOfYear(1); end=start.plusYears(1); break;
+            default: return false;
         }
-        return total;
-    }
-
-    public static long plannedReceipts(List<PaymentStage> stages, LocalDate today) {
-        long total = 0;
-        for (PaymentStage s : stages) {
-            long unpaid = Math.max(0, s.plannedAmount - s.actualAmount);
-            if (unpaid > 0 && !s.plannedDate.isBefore(today)) total += unpaid;
-        }
-        return total;
-    }
-
-    public static long remainingToReceive(long contractAmount, long actualReceipts) {
-        return Math.max(0, contractAmount - actualReceipts);
-    }
-
-    public static long installerDue(long accrued, long paidAdvancesAndPayments) {
-        return Math.max(0, accrued - paidAdvancesAndPayments);
-    }
-
-    public static long accountableBalance(long opening, long income, long expenses, long incomingTransfers, long outgoingTransfers) {
-        return opening + income - expenses + incomingTransfers - outgoingTransfers;
-    }
-
-    public static boolean canClose100(boolean worksDone, boolean paymentsClosed, boolean expensesClosed, boolean reportsClosed) {
-        return worksDone && paymentsClosed && expensesClosed && reportsClosed;
-    }
-
-    public static final class MoneyOperation {
-        public final String type;
-        public final long amount;
-        public MoneyOperation(String type, long amount) { this.type = type; this.amount = amount; }
-    }
-
-    public static final class PaymentStage {
-        public final LocalDate plannedDate;
-        public final long plannedAmount;
-        public final long actualAmount;
-        public PaymentStage(LocalDate plannedDate, long plannedAmount, long actualAmount) {
-            this.plannedDate = plannedDate;
-            this.plannedAmount = plannedAmount;
-            this.actualAmount = actualAmount;
-        }
+        return !date.isBefore(start) && date.isBefore(end);
     }
 }
