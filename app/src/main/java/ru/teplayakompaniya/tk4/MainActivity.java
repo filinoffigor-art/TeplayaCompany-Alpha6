@@ -513,10 +513,12 @@ public class MainActivity extends Activity {
         if(o.planStart.isEmpty()&&!Stage1Rules.isClosed(o.status)){
             Button schedule=primaryOutline("Запланировать дату");schedule.setOnClickListener(v->scheduleObject(o));content.addView(schedule);
         }
-        sectionTitle("Финансы объекта",null,null); LinearLayout f=h();
-        f.addView(miniCard("₽","Договор",money(o.contract),GREEN,"kpi:contract_object"),weight());
-        f.addView(miniCard("↓","Получено",money(o.paid),BLUE,"payments:"+o.id),weightMarginLeft()); content.addView(f); spacer(7);
-        content.addView(miniCard("◷","Осталось получить",money(Math.max(0,o.contract-o.paid)),ORANGE,"payments:"+o.id));
+        if(!"INSTALLER".equals(apiRole)){
+            sectionTitle("Финансы объекта",null,null); LinearLayout f=h();
+            f.addView(miniCard("₽","Договор",o.contractKnown?money(o.contract):"Не заполнено",GREEN,"kpi:contract_object"),weight());
+            f.addView(miniCard("↓","Получено",o.paidKnown?money(o.paid):"Не заполнено",BLUE,"payments:"+o.id),weightMarginLeft()); content.addView(f); spacer(7);
+            content.addView(miniCard("◷","Осталось получить",o.contractKnown&&o.paidKnown?money(Math.max(0,o.contract-o.paid)):"Не заполнено",ORANGE,"payments:"+o.id));
+        }
 
         sectionTitle("Монтажники",null,null);
         Button hired=primaryOutline("Добавить → Наёмник");hired.setOnClickListener(v->workforceUi().hiredDay(null,o.id));content.addView(hired);
@@ -668,7 +670,7 @@ public class MainActivity extends Activity {
         if(!mode.equals("overview")&&!mode.equals("transfers")){Button add=primaryOutline(mode.equals("income")?"Добавить приход":"Добавить расход");add.setOnClickListener(v->moneyDialog(mode.equals("income")?"INCOME":"EXPENSE"));content.addView(add);}
         sectionTitle(mode.equals("overview")?"Последние операции":"История операций",null,null);
         EditText query=edit("Поиск по объекту, статье, ответственному");query.setMinimumHeight(dp(48));if(!mode.equals("overview"))content.addView(query);
-        content.addView(tv("Показана доступная часть истории. Для полной сверки требуется загрузка всех операций периода.",11,MUTED,Typeface.NORMAL));
+        content.addView(tv(snapshot.optBoolean("historyComplete")?"Все операции выбранного периода по последней синхронизации.":"Показана доступная часть истории. Для полной сверки требуется загрузка всех операций периода.",11,MUTED,Typeface.NORMAL));
         LinearLayout list=v();content.addView(list);Runnable fill=()->fillFinanceList(list,mode,query.getText().toString());query.addTextChangedListener(new SimpleWatcher(fill));fill.run();
     }
 
@@ -883,7 +885,7 @@ public class MainActivity extends Activity {
         if(Stage1Rules.isAdmin(apiRole))for(String label:new String[]{"Система","Справочники","Интеграции","Финансовые настройки","Резервные копии и обновления","Журнал изменений"}){
             content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))new AlertDialog.Builder(this).setTitle("Интеграции").setItems(new String[]{"Bitrix24","Telegram — финансы"},(d,w)->{if(w==0)showBitrixSettings();else navigate("finance:telegram");}).show();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
         }
-        content.addView(infoRow("Версия","6.3.0-connected"));
+        content.addView(infoRow("Версия","6.3.1-connected"));
         Button sync=primary("Синхронизировать сейчас");sync.setEnabled(!syncInProgress);sync.setOnClickListener(v->syncNow(true));content.addView(sync);
         Button pair=primaryOutline("Подключение устройства");pair.setOnClickListener(v->showPairingDialog());content.addView(pair);
     }
@@ -1046,7 +1048,7 @@ public class MainActivity extends Activity {
         String[] items={"Обновить данные","Настройки","Поделиться сводкой","О приложении"};
         new AlertDialog.Builder(this).setTitle("Тёплая Компания").setItems(items,(d,w)->{if(w==0)syncNow(true);else if(w==1)navigate("settings");else if(w==2)shareSummary();else showAboutDialog();}).show();
     }
-    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.3.0-connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
+    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.3.1-connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
     private void shareSummary(){
         if(!canFinance()){toast("Сводка недоступна для вашей роли");return;}
         Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,"Тёплая Компания — "+currentPeriod+"\nОборот: "+metric("turnover",true)+"\nРасходы: "+metric("expenses",true)+"\nПрибыль: "+metric("profit",true)+"\n"+lastSyncText);startActivity(Intent.createChooser(i,"Поделиться сводкой"));
@@ -1348,10 +1350,11 @@ public class MainActivity extends Activity {
         if(user==null)throw new Exception("Missing user");
         snapshot=root;
         if(user!=null){apiRole=user.optString("role","");financeGranted=user.optBoolean("finance",false);}
-        // Current v2.1 backend does not guarantee row-level scoping; fail closed.
-        scopedData=false;
+        JSONObject scope=root.optJSONObject("scope");
+        scopedData="tk4-v3-connected".equals(root.optString("api"))&&scope!=null&&scope.optBoolean("enforced")
+                &&user.optString("id").equals(scope.optString("userId"));
         leaderName=user.optString("name","Профиль");demoRole=apiRole;
-        if(Stage1Rules.needsScopedData(apiRole)){
+        if(Stage1Rules.needsScopedData(apiRole)&&!scopedData){
             seedDemoData();snapshot=new JSONObject();return;
         }
         igorBalance=0;konstantinBalance=0;
@@ -1386,7 +1389,8 @@ public class MainActivity extends Activity {
                     o.optString("workType"),o.optString("status"),o.optInt("progress"),o.optLong("contract"),
                     o.optLong("paid"),o.optString("engineer",""),manager,o.optString("brigade","Не назначены"),o.optInt("revision",1)
             ));
-            ObjectItem added=objects.get(objects.size()-1);added.planStart=o.optString("planStart");added.planEnd=o.optString("planEnd");
+            ObjectItem added=objects.get(objects.size()-1);added.planStart=o.isNull("planStart")?"":o.optString("planStart");added.planEnd=o.isNull("planEnd")?"":o.optString("planEnd");
+            added.contractKnown=o.opt("contract") instanceof Number;added.paidKnown=o.opt("paid") instanceof Number;
         }
 
         Map<String,long[]> payroll=new HashMap<>();
@@ -1404,12 +1408,12 @@ public class MainActivity extends Activity {
             JSONObject e=ea.getJSONObject(x);
             if(!"true".equalsIgnoreCase(e.optString("active","true")) && !"TRUE".equals(e.optString("active")))continue;
             String role=e.optString("role","");
-            if(role.toLowerCase(Locale.ROOT).contains("монтаж")||role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED")){
+            if(role.equalsIgnoreCase("INSTALLER")||role.toLowerCase(Locale.ROOT).contains("монтаж")||role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED")){
                 long[] pp=payroll.getOrDefault(e.optString("id"),new long[2]);
                 installers.add(new InstallerItem(e.optString("id"),e.optString("name"),0,0,0,pp[0],pp[1],0,"","Не заполнено"));
                 installers.get(installers.size()-1).hired=role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED");
             }
-            if(role.toLowerCase(Locale.ROOT).contains("инжен")||role.toLowerCase(Locale.ROOT).contains("партн")){
+            if(role.equalsIgnoreCase("ENGINEER")||role.equalsIgnoreCase("PARTNER")||role.toLowerCase(Locale.ROOT).contains("инжен")||role.toLowerCase(Locale.ROOT).contains("партн")){
                 engineers.add(new EngineerItem(e.optString("id"),e.optString("name"),0,0,0,0));
             }
         }
@@ -1421,7 +1425,7 @@ public class MainActivity extends Activity {
         if(income!=null)for(int x=0;x<income.length();x++){
             JSONObject t=income.getJSONObject(x);
             String type="Возврат клиенту".equals(t.optString("operation"))?"EXPENSE":"INCOME";
-            MoneyTx tx=new MoneyTx(type,t.optString("paymentKind","Приход"),t.optString("object"),t.optLong("amount"));tx.id=t.optString("id");tx.objectId=t.optString("objectId");tx.date=t.optString("date");tx.responsible=t.optString("recipient");tx.comment=t.optString("comment");txs.add(tx);
+            MoneyTx tx=new MoneyTx(type,t.optString("paymentKind","Приход"),t.optString("object"),t.optLong("amount"));tx.entity=t.optString("entity");tx.revision=t.optInt("revision",1);tx.exactAmount=t.optDouble("amount");tx.id=t.optString("id");tx.objectId=t.optString("objectId");tx.date=t.optString("date");tx.responsible=t.optString("recipient");tx.comment=t.optString("comment");txs.add(tx);
         }
         JSONArray ex=root.optJSONArray("expenses");
         if(ex!=null)for(int x=0;x<ex.length();x++){
@@ -1429,7 +1433,7 @@ public class MainActivity extends Activity {
             String type="Перевод подотчёта".equals(t.optString("type"))?"TRANSFER":"EXPENSE";
             String sub=t.optString("object");
             if(sub.isEmpty())sub=t.optString("description");
-            MoneyTx tx=new MoneyTx(type,t.optString("article",t.optString("type")),sub,t.optLong("amount"));tx.id=t.optString("id");tx.objectId=t.optString("objectId");tx.date=t.optString("date");tx.responsible=t.optString("responsible");tx.comment=t.optString("description");txs.add(tx);
+            MoneyTx tx=new MoneyTx(type,t.optString("article",t.optString("type")),sub,t.optLong("amount"));tx.entity=t.optString("entity");tx.revision=t.optInt("revision",1);tx.exactAmount=t.optDouble("amount");tx.id=t.optString("id");tx.objectId=t.optString("objectId");tx.date=t.optString("date");tx.responsible=t.optString("responsible");tx.comment=t.optString("description");txs.add(tx);
         }
 
         surveys.clear();
@@ -1541,7 +1545,8 @@ public class MainActivity extends Activity {
         // Legacy v2.1 profit is merely turnover minus cash expenses, not profit of closed objects.
         if(key.equals("profit"))key="closedProfit";
         if(!hasData("kpis")||!liveKpis.containsKey(key))return "Не заполнено";
-        if((currentPeriod.equals("Год")||currentPeriod.equals("Квартал"))&&!snapshot.has("coverage"))return "Недостаточно данных";
+        JSONObject coverage=snapshot.optJSONObject("coverage");
+        if(coverage!=null&&!coverage.optBoolean("complete")||(currentPeriod.equals("Год")||currentPeriod.equals("Квартал"))&&coverage==null)return "Недостаточно данных";
         return currency?money(liveKpis.get(key)):String.valueOf(liveKpis.get(key));
     }
     private String plannedMetric(){
@@ -1616,7 +1621,24 @@ public class MainActivity extends Activity {
         details.addView(tv(operation.sub,14,INK,Typeface.NORMAL));details.addView(tv("Ответственный: "+(operation.responsible.isEmpty()?"Не заполнено":operation.responsible),13,MUTED,Typeface.NORMAL));details.addView(tv(operation.comment,13,MUTED,Typeface.NORMAL));
         AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("Операция "+operation.id).setView(details).setPositiveButton("Закрыть",null);
         if(!operation.objectId.isEmpty())dialog.setNeutralButton("Объект",(d,w)->navigate("object:"+operation.objectId));
-        dialog.setNegativeButton("Корректировка",(d,w)->unavailable("Корректировка недоступна","Сервер ещё не поддерживает изменение с обязательной причиной и журналом «было → стало». Исходная операция сохранена."));dialog.show();
+        JSONObject capabilities=snapshot.optJSONObject("capabilities");
+        if(canFinance()&&capabilities!=null&&capabilities.optBoolean("financialEditsV1")&&!operation.entity.isEmpty())
+            dialog.setNegativeButton("Корректировка",(d,w)->editOperation(operation));
+        dialog.show();
+    }
+    private void editOperation(MoneyTx operation){
+        LinearLayout form=v();form.setPadding(dp(20),dp(12),dp(20),dp(12));
+        EditText amount=edit("Новая сумма");amount.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);amount.setText(String.valueOf(operation.exactAmount));
+        EditText reason=edit("Причина корректировки");form.addView(labelWrap("Сумма",amount));form.addView(labelWrap("Обязательная причина",reason));
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Корректировка суммы").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(ignored->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String explanation=reason.getText().toString().trim();if(explanation.isEmpty()){reason.setError("Укажите причину");return;}
+            final double value;try{value=Double.parseDouble(amount.getText().toString().replace(',','.'));if(!Double.isFinite(value)||value<=0)throw new NumberFormatException();}catch(NumberFormatException e){amount.setError("Введите сумму больше нуля");return;}
+            Button save=dialog.getButton(AlertDialog.BUTTON_POSITIVE);save.setEnabled(false);
+            try{JSONObject body=new JSONObject();body.put("entity",operation.entity);body.put("entityId",operation.id);body.put("expectedRevision",operation.revision);body.put("amount",value);body.put("reason",explanation);
+                api.mutate("editFinance",body,new ApiClient.Callback(){public void onSuccess(JSONObject response){dialog.dismiss();syncNow(false);toast("Корректировка записана в журнал");}public void onError(String error){save.setEnabled(true);showApiError(error);}});
+            }catch(Exception e){save.setEnabled(true);showApiError("Не удалось подготовить корректировку");}
+        }));dialog.show();
     }
 
     static final class SimpleWatcher implements TextWatcher{private final Runnable r;SimpleWatcher(Runnable r){this.r=r;}public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int b,int c){r.run();}public void afterTextChanged(Editable e){}}
@@ -1655,7 +1677,7 @@ public class MainActivity extends Activity {
 
     // ---------- models ----------
     static final class ObjectItem{
-        String planStart="",planEnd="";String id,address,client,phone,workType,status,engineer,manager,installers;int progress,revision;long contract,paid;
+        boolean contractKnown=false,paidKnown=false;String planStart="",planEnd="";String id,address,client,phone,workType,status,engineer,manager,installers;int progress,revision;long contract,paid;
         ObjectItem(String id,String address,String client,String workType,String status,int progress,long contract,long paid,String engineer,String manager,String installers){
             this(id,address,client,"",workType,status,progress,contract,paid,engineer,manager,installers,1);
         }
@@ -1672,7 +1694,7 @@ public class MainActivity extends Activity {
     static final class MediaItem{String id,objectId,date,type,stage,url,comment;MediaItem(String id,String objectId,String date,String type,String stage,String url,String comment){this.id=id;this.objectId=objectId;this.date=date;this.type=type;this.stage=stage;this.url=url;this.comment=comment;}}
     static final class CalendarItem{String id,objectId,installerId,installer,windowFrom,windowTo,planStart,planEnd,status;CalendarItem(String id,String objectId,String installerId,String installer,String windowFrom,String windowTo,String planStart,String planEnd,String status){this.id=id;this.objectId=objectId;this.installerId=installerId;this.installer=installer;this.windowFrom=windowFrom;this.windowTo=windowTo;this.planStart=planStart;this.planEnd=planEnd;this.status=status;}}
     static final class MoneyTx{
-        String id="",objectId="",date="",responsible="",comment="";final String type,title,sub;final long amount;
+        String id="",objectId="",date="",responsible="",comment="",entity="";int revision=1;double exactAmount;final String type,title,sub;final long amount;
         MoneyTx(String type,String title,String sub,long amount){this.type=type;this.title=title;this.sub=sub;this.amount=amount;}
     }
 }
