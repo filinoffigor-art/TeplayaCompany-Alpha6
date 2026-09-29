@@ -1424,12 +1424,14 @@ public class MainActivity extends Activity {
         JSONArray income=root.optJSONArray("income");
         if(income!=null)for(int x=0;x<income.length();x++){
             JSONObject t=income.getJSONObject(x);
+            if(locallyDeletedFinance(t.optString("id")))continue;
             String type="Возврат клиенту".equals(t.optString("operation"))?"EXPENSE":"INCOME";
             MoneyTx tx=new MoneyTx(type,t.optString("paymentKind","Приход"),t.optString("object"),t.optLong("amount"));tx.entity=t.optString("entity");tx.revision=t.optInt("revision",1);tx.exactAmount=t.optDouble("amount");tx.id=t.optString("id");tx.objectId=t.optString("objectId");tx.date=t.optString("date");tx.responsible=t.optString("recipient");tx.comment=t.optString("comment");txs.add(tx);
         }
         JSONArray ex=root.optJSONArray("expenses");
         if(ex!=null)for(int x=0;x<ex.length();x++){
             JSONObject t=ex.getJSONObject(x);
+            if(locallyDeletedFinance(t.optString("id")))continue;
             String type="Перевод подотчёта".equals(t.optString("type"))?"TRANSFER":"EXPENSE";
             String sub=t.optString("object");
             if(sub.isEmpty())sub=t.optString("description");
@@ -1513,7 +1515,12 @@ public class MainActivity extends Activity {
         }catch(Exception e){return 0;}
     }
     private void showApiError(String error){
-        new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(error).setPositiveButton("Закрыть",null).show();
+        String message=error==null?"Не удалось выполнить операцию":error;
+        if("REVISION_CONFLICT".equals(error))message="Запись была изменена другим пользователем. Обновите данные и повторите действие.";
+        else if("RECORD_NOT_FOUND".equals(error))message="Запись уже удалена или больше недоступна. Обновите данные.";
+        else if("DELETE_REASON_REQUIRED".equals(error))message="Укажите причину удаления.";
+        else if("FORBIDDEN_FINANCE".equals(error))message="У вашей роли нет права изменять финансовые операции.";
+        new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(message).setPositiveButton("Закрыть",null).show();
     }
     private void setBusy(Button b,boolean busy){b.setEnabled(!busy);b.setText(busy?"Сохраняю…":b.getText().toString().replace("Сохраняю…","Сохранить"));}
     private ObjectItem findObjectByAddress(String address){for(ObjectItem o:objects)if(o.address.equals(address))return o;return null;}
@@ -1619,13 +1626,61 @@ public class MainActivity extends Activity {
         LinearLayout details=v();details.setPadding(dp(24),dp(16),dp(24),dp(16));
         details.addView(tv(money(operation.amount),24,INK,Typeface.BOLD));details.addView(tv(operation.date+" · "+operation.title,14,INK,Typeface.NORMAL));
         details.addView(tv(operation.sub,14,INK,Typeface.NORMAL));details.addView(tv("Ответственный: "+(operation.responsible.isEmpty()?"Не заполнено":operation.responsible),13,MUTED,Typeface.NORMAL));details.addView(tv(operation.comment,13,MUTED,Typeface.NORMAL));
+        if(!operation.objectId.isEmpty())details.addView(clickableInfoRow("Связанный объект","Открыть ›",v->navigate("object:"+operation.objectId)));
         AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("Операция "+operation.id).setView(details).setPositiveButton("Закрыть",null);
-        if(!operation.objectId.isEmpty())dialog.setNeutralButton("Объект",(d,w)->navigate("object:"+operation.objectId));
         JSONObject capabilities=snapshot.optJSONObject("capabilities");
         if(canFinance()&&capabilities!=null&&capabilities.optBoolean("financialEditsV1")&&!operation.entity.isEmpty())
             dialog.setNegativeButton("Корректировка",(d,w)->editOperation(operation));
+        if(canFinance()&&capabilities!=null&&capabilities.optBoolean("financialDeletesV1")&&!operation.entity.isEmpty())
+            dialog.setNeutralButton("Удалить",(d,w)->deleteOperation(operation));
         dialog.show();
     }
+
+    private void deleteOperation(MoneyTx operation){
+        LinearLayout form=v();form.setPadding(dp(20),dp(12),dp(20),dp(12));
+        form.addView(tv(operation.date+" · "+operation.title,13,INK,Typeface.BOLD));
+        form.addView(tv(operation.sub,12,MUTED,Typeface.NORMAL));
+        form.addView(tv(money(operation.amount),20,RED,Typeface.BOLD));
+        EditText reason=edit("Почему запись удаляется?");
+        form.addView(labelWrap("Обязательная причина",reason));
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Удалить финансовую операцию?")
+                .setMessage("Операция исчезнет из рабочих данных и расчётов, но останется в журнале действий.")
+                .setView(form).setPositiveButton("Удалить",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(ignored->{
+            Button remove=dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            remove.setTextColor(RED);
+            remove.setOnClickListener(v->{
+                String explanation=reason.getText().toString().trim();
+                if(explanation.isEmpty()){reason.setError("Укажите причину");return;}
+                if(api==null||!api.hasToken()){dialog.dismiss();showPairingDialog();return;}
+                remove.setEnabled(false);remove.setText("Удаляю…");
+                try{
+                    JSONObject body=new JSONObject();body.put("entity",operation.entity);body.put("entityId",operation.id);
+                    body.put("expectedRevision",operation.revision);body.put("reason",explanation);
+                    body.put("idempotencyKey","DELETE-"+operation.entity+"-"+operation.id+"-v"+operation.revision);
+                    api.mutate("deleteFinance",body,new ApiClient.Callback(){
+                        public void onSuccess(JSONObject response){
+                            rememberDeletedFinance(operation.id);
+                            txs.remove(operation);
+                            dialog.dismiss();toast("Операция удалена");render();syncNow(false);
+                        }
+                        public void onError(String error){remove.setEnabled(true);remove.setText("Удалить");showApiError(error);}
+                    });
+                }catch(Exception e){remove.setEnabled(true);remove.setText("Удалить");showApiError("Не удалось подготовить удаление");}
+            });
+        });
+        dialog.show();
+    }
+
+    private void rememberDeletedFinance(String id){
+        if(id==null||id.isEmpty())return;
+        Set<String> ids=new HashSet<>(prefs.getStringSet("finance.deleted.ids",Collections.emptySet()));
+        ids.add(id);prefs.edit().putStringSet("finance.deleted.ids",ids).apply();
+    }
+    private boolean locallyDeletedFinance(String id){
+        return id!=null&&prefs.getStringSet("finance.deleted.ids",Collections.emptySet()).contains(id);
+    }
+
     private void editOperation(MoneyTx operation){
         LinearLayout form=v();form.setPadding(dp(20),dp(12),dp(20),dp(12));
         EditText amount=edit("Новая сумма");amount.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);amount.setText(String.valueOf(operation.exactAmount));
