@@ -14,7 +14,12 @@ function opTable_(name){
   const rows=values.map((v,i)=>{const r={};headers.forEach((h,c)=>{if(h)r[h]=v[c]===''?null:v[c];});Object.defineProperty(r,'_row',{value:i+2});return r;}).filter(r=>r.ID);
   return opTables_[name]={sheet:sheet,headers:headers,rows:rows};
 }
-function opRows_(name){return opTable_(name).rows;}
+const OP_SOFT_DELETE_TABLES = new Set(['Objects','Clients','Income','Expenses','CashTransfers','Leads','Measurements','TechTasks','Assignments','DailyPlans','PaymentSchedule','Calendar','Media','Employees','SalaryAccruals']);
+function opRows_(name){
+  const rows=opTable_(name).rows;
+  return OP_SOFT_DELETE_TABLES.has(name)?rows.filter(r=>!r.DeletedAt):rows;
+}
+function opRawFind_(name,id){return opTable_(name).rows.find(r=>String(r.ID)===String(id));}
 function opFind_(name,id){return opRows_(name).find(r=>String(r.ID)===String(id));}
 function opStr_(x){return x==null?'':String(x);}
 function opYes_(x){return x===true||/^(true|да|1)$/i.test(opStr_(x));}
@@ -108,7 +113,7 @@ function opBootstrap_(auth,period){
     return {id:p.ID,objectId:p.Object_ID,plannedDate:date,plannedAmount:opRub_(amount),actualPaid:opRub_(received),remaining:opRub_(left),stageName:p['Наименование этапа']||p.StageName,status:left==null?'Не заполнено':left===0?'Оплачено':date&&date<opToday_()?'Просрочено':'План',overdueDays:date&&date<opToday_()&&left>0?Math.floor((new Date(opToday_())-new Date(date))/86400000):0};});
   const response={ok:true,api:OP.version,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
     scope:{enforced:true,userId:auth.userId},coverage:{from:settings.COVERAGE_FROM,to:settings.COVERAGE_TO,complete:range.from>=settings.COVERAGE_FROM&&range.to<=settings.COVERAGE_TO},
-    capabilities:{financialEditsV1:finance,personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
+    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
     employees:employees.map(r=>({id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind})),
     leads:leads.map(opPublicRow_),surveys:surveys.map(opPublicRow_),techTasks:byObject(opRows_('TechTasks')).map(opPublicRow_),dayPlans:byObject(opRows_('DailyPlans')).filter(r=>r.TechTask_ID).map(opPublicRow_),assignments:byObject(opRows_('Assignments')).map(opPublicRow_),calendar:byObject(opRows_('Calendar')).map(opPublicRow_),media:byObject(opRows_('Media')).map(opPublicRow_),paymentPlan:role==='INSTALLER'?[]:payments,
     payroll:opRows_('SalaryAccruals').filter(r=>full||role==='INSTALLER'&&r.Installer_ID===auth.employeeId).map(opPublicRow_),attention:[],lists:{}};
@@ -186,7 +191,7 @@ function opCommand_(auth,body){
   const hash=opHash_(opCanonical_({action:action,data:data})),key=auth.userId+':'+requestId;
   const old=opRows_('AuditLog').find(r=>r.Transaction_ID===key);if(old){if(old.RequestHash!==hash)throw Error('IDEMPOTENCY_CONFLICT');return Object.assign({ok:true},typeof old.ResultJSON==='string'?JSON.parse(old.ResultJSON):old.ResultJSON);}
   let changes=[],result={},reason=opStr_(data.reason),now=new Date().toISOString();
-  if(['addIncome','addExpense','transfer','editFinance'].indexOf(action)>=0&&!opFinance_(auth))throw Error('FORBIDDEN_FINANCE');
+  if(['addIncome','addExpense','transfer','editFinance','deleteFinance'].indexOf(action)>=0&&!opFinance_(auth))throw Error('FORBIDDEN_FINANCE');
   if(action==='addIncome'){
     const object=opObjectAccess_(auth,data.objectId),person=opPerson_(data.recipient),amount=opMinor_(data.amount),operation=data.operation||'Приход';if(['Приход','Возврат клиенту'].indexOf(operation)<0)throw Error('INVALID_OPERATION');
     if(data.paymentPlanId){const payment=opFind_('PaymentSchedule',data.paymentPlanId);if(!payment||payment.Object_ID!==object.ID)throw Error('PAYMENT_PLAN_MISMATCH');}
@@ -201,6 +206,15 @@ function opCommand_(auth,body){
     const from=opPerson_(data.from),to=opPerson_(data.to);if(from.ID===to.ID)throw Error('TRANSFER_TO_SELF');const id=opId_('TRF');changes.push(opChange_('CashTransfers',null,{ID:id,Date:opDateRequired_(data.date||opToday_()),Type:'Перевод подотчёта',Category:'Внутренний перевод',Description:'Передача между подотчётными лицами',AmountMinor:opMinor_(data.amount),Person_ID:from.ID,ToPerson_ID:to.ID,LegacyPerson:from.Name,Status:'CONFIRMED',LegacyStatus:'Оплачено',Comment:data.comment||null,DataStatus:'IMPORTED'}));result={id:id};
   }else if(action==='editFinance'){
     if(['Income','Expenses','CashTransfers'].indexOf(data.entity)<0)throw Error('INVALID_ENTITY');reason=opRequired_(data.reason,'EDIT_REASON_REQUIRED');const record=opFind_(data.entity,data.entityId);if(!record)throw Error('RECORD_NOT_FOUND');if(Number(data.expectedRevision)!==Number(record.Revision||1))throw Error('REVISION_CONFLICT');changes.push(opChange_(data.entity,record,{AmountMinor:opMinor_(data.amount)}));result={id:record.ID,revision:Number(record.Revision||1)+1};
+  }else if(action==='deleteFinance'){
+    if(['Income','Expenses','CashTransfers'].indexOf(data.entity)<0)throw Error('INVALID_ENTITY');
+    reason=opRequired_(data.reason,'DELETE_REASON_REQUIRED');
+    const record=opRawFind_(data.entity,data.entityId);
+    if(!record||record.DeletedAt)throw Error('RECORD_NOT_FOUND');
+    if(Number(data.expectedRevision)!==Number(record.Revision||1))throw Error('REVISION_CONFLICT');
+    const deletedAt=new Date().toISOString();
+    changes.push(opChange_(data.entity,record,{DeletedAt:deletedAt,DeletedBy:auth.userId,DeleteReason:reason}));
+    result={id:record.ID,revision:Number(record.Revision||1)+1,deleted:true,deletedAt:deletedAt};
   }else if(action==='createObject'||action==='convertSurveyToObject'){
     if(!opAdmin_(auth)&&['PARTNER','ENGINEER','MANAGER'].indexOf(opRole_(auth))<0)throw Error('FORBIDDEN_OBJECTS');
     let survey;if(action==='convertSurveyToObject'){survey=opFind_('Measurements',data.surveyId);if(!survey||!opAdmin_(auth)&&opRole_(auth)!=='PARTNER'&&survey.Manager_ID!==auth.userId&&survey.Engineer_ID!==auth.userId)throw Error('SURVEY_NOT_FOUND');if(survey.Object_ID)return {ok:true,id:survey.Object_ID,objectId:survey.Object_ID};data.address=survey['Адрес'];data.client=survey.Name||survey['Клиент'];data.phone=survey.Phone||survey['Телефон'];data.workType=survey['Вид работ'];}

@@ -24,6 +24,25 @@ test('same key returns same ID and does not duplicate income',()=>{const b={obje
 test('same key with different payload is rejected',()=>{const b={objectId:'O1',recipient:'P1',amount:100,paymentKind:'Аванс',method:'Наличные'};command('addIncome',b);assert.throws(()=>command('addIncome',{...b,amount:101}),/IDEMPOTENCY_CONFLICT/);});
 test('transfer affects two balances once and never company expenses',()=>{command('transfer',{from:'P1',to:'P2',amount:25});const b=context.opBalances_(context.opRows_('AccountablePersons'),[],[],context.opRows_('CashTransfers'));assert.equal(b['Person 1'].balance,-125);assert.equal(b['Person 2'].balance,25);assert.equal(context.opRows_('Expenses').length,0);});
 test('financial edit requires reason and revision',()=>{tables.Expenses=sheet('Expenses',[{ID:'X1',AmountMinor:100,Status:'CONFIRMED',Revision:2}]);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2}),/EDIT_REASON_REQUIRED/);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:1,reason:'Correction'}),/REVISION_CONFLICT/);command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2,reason:'Correction'});assert.equal(context.opRows_('Expenses')[0].AmountMinor,200);assert.equal(context.opRows_('AuditLog')[0].CommitState,'COMMITTED');});
+test('finance delete creates tombstone and deleted income never returns to active bootstrap',()=>{
+ tables.Income=sheet('Income',[{ID:'INC1',Date:'2026-09-10',Operation:'Приход',PaymentKind:'Аванс',AmountMinor:12000000,Method:'Наличные',Recipient_ID:'P1',Object_ID:'O1',Status:'CONFIRMED',Revision:3}]);
+ vm.runInContext('opTables_={}',context);context.opToday_=()=> '2026-09-23';
+ let before=context.opBootstrap_(owner,'Месяц');assert.equal(before.income.length,1);assert.equal(before.kpis.turnover,120000);
+ const result=command('deleteFinance',{entity:'Income',entityId:'INC1',expectedRevision:3,reason:'Ошибочный приход'});
+ assert.equal(result.deleted,true);
+ vm.runInContext('opTables_={}',context);
+ const raw=context.opTable_('Income').rows.find(r=>r.ID==='INC1');assert(raw.DeletedAt);assert.equal(raw.DeleteReason,'Ошибочный приход');
+ const after=context.opBootstrap_(owner,'Месяц');assert.equal(after.income.length,0);assert.equal(after.kpis.turnover,0);
+ assert.equal(context.opRows_('Income').length,0);
+});
+test('deleted transfer no longer affects accountable balances',()=>{
+ tables.CashTransfers=sheet('CashTransfers',[{ID:'T1',Date:'2026-09-10',Type:'Перевод подотчёта',AmountMinor:5000,Person_ID:'P1',ToPerson_ID:'P2',Status:'CONFIRMED',Revision:1}]);
+ vm.runInContext('opTables_={}',context);
+ let b=context.opBalances_(context.opRows_('AccountablePersons'),[],[],context.opRows_('CashTransfers'));assert.equal(b['Person 1'].balance,-150);assert.equal(b['Person 2'].balance,50);
+ command('deleteFinance',{entity:'CashTransfers',entityId:'T1',expectedRevision:1,reason:'Ошибочный перевод'});
+ vm.runInContext('opTables_={}',context);
+ b=context.opBalances_(context.opRows_('AccountablePersons'),[],[],context.opRows_('CashTransfers'));assert.equal(b['Person 1'].balance,-100);assert.equal(b['Person 2'].balance,0);
+});
 test('journal resumes interrupted write without double applying',()=>{failTable='Expenses';const b={amount:15,article:'Материалы',description:'Paint',accountable:'P1',paymentStatus:'Оплачено',method:'Наличные'};assert.throws(()=>command('addExpense',b),/SIMULATED_INTERRUPTION/);assert.equal(context.opRows_('AuditLog')[0].CommitState,'PREPARED');context.opRecover_();command('addExpense',b);assert.equal(context.opRows_('Expenses').length,1);assert.equal(context.opRows_('AuditLog')[0].CommitState,'COMMITTED');});
 test('untrusted auth fields never enter audit payload',()=>{command('transfer',{from:'P1',to:'P2',amount:1,token:'SECRET_TOKEN',pairingCode:'SECRET_CODE',role:'OWNER'});assert(!JSON.stringify(tables.AuditLog.data).includes('SECRET'));});
 test('manager cannot write company finances',()=>{assert.throws(()=>command('transfer',{from:'P1',to:'P2',amount:1},{userId:'M1',role:'MANAGER',finance:true}),/FORBIDDEN_FINANCE/);});
