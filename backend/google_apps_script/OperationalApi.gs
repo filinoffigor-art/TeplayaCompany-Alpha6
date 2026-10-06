@@ -136,7 +136,7 @@ function opBootstrap_(auth,period){
     const paid=pi.filter(r=>r.Status==='CONFIRMED'&&r.Operation==='Приход');kpis.averagePayment=paid.length?opRub_(Math.round(paid.reduce((n,r)=>n+r.AmountMinor,0)/paid.length)):null;
     const outgoing=pe.filter(r=>r.Status==='CONFIRMED');kpis.averageExpense=outgoing.length?opRub_(Math.round(outgoing.reduce((n,r)=>n+r.AmountMinor,0)/outgoing.length)):null;
     response.accountable=opBalances_(people,income,expenses,transfers);
-    response.fundingAccounts=people.map(p=>({id:p.ID,name:p.Name,balance:opRub_(opAccountableBalanceMinor_(p,income,expenses,transfers)),revision:Number(p.Revision||1)})).filter(p=>p.balance!=null);
+    response.fundingAccounts=people.map(p=>({id:p.ID,name:p.Name,balance:opRub_(opAccountableBalanceMinor_(p,income,expenses,transfers)),revision:Number(p.Revision||1)})).filter(p=>p.balance!=null&&p.balance>0);
     const balances=Object.values(response.accountable).map(a=>a.balance);kpis.totalAccountable=balances.every(x=>x!=null)?balances.reduce((n,x)=>n+x,0):null;
     response.income=pi.map(r=>opIncomeDto_(r,objects,people));response.expenses=pe.concat(transfers.filter(r=>opInPeriod_(r.Date,range))).map(r=>opExpenseDto_(r,objects,people));response.historyComplete=true;
     kpis.debt=payments.some(p=>p.remaining==null)?null:payments.filter(p=>p.status==='Просрочено').reduce((n,p)=>n+p.remaining,0);
@@ -149,7 +149,7 @@ function opBootstrap_(auth,period){
 }
 function opPublicRow_(r){const out={};Object.keys(r).forEach(k=>{if(!/^(RawJSON|LiveRawJSON|Source|LegacyID|Migration|Token|Pairing)/.test(k))out[k]=r[k];});return out;}
 function opIncomeDto_(r,objects,people){const o=objects.find(o=>o.ID===r.Object_ID),p=people.find(p=>p.ID===r.Recipient_ID);return {id:r.ID,entity:'Income',revision:r.Revision||1,objectId:r.Object_ID,object:o?o.Address:'Не заполнено',date:r.Date,operation:r.Operation,paymentKind:r.PaymentKind,amount:opRub_(r.AmountMinor),recipient:p?p.Name:null,comment:r.Comment,status:r.Status};}
-function opExpenseDto_(r,objects,people){const o=objects.find(o=>o.ID===r.Object_ID),p=people.find(p=>p.ID===r.Person_ID);return {id:r.ID,entity:r.Type==='Перевод подотчёта'?'CashTransfers':'Expenses',revision:r.Revision||1,objectId:r.Object_ID,object:o?o.Address:'',date:r.Date,type:r.Type,article:r.Category,description:r.Description,amount:opRub_(r.AmountMinor),responsible:p?p.Name:null,status:r.Status};}
+function opExpenseDto_(r,objects,people){const o=objects.find(o=>o.ID===r.Object_ID),p=people.find(p=>p.ID===r.Person_ID);return {id:r.ID,entity:r.ToPerson_ID?'CashTransfers':'Expenses',revision:r.Revision||1,objectId:r.Object_ID,object:o?o.Address:'',date:r.Date,type:r.Type,article:r.Category,description:r.Description,amount:opRub_(r.AmountMinor),responsible:p?p.Name:null,status:r.Status};}
 function opGroupExpenses_(rows,key){const map={};rows.forEach(r=>{const amount=opExpenseSigned_(r);if(amount){const label=r[key]||'Не заполнено';map[label]=(map[label]||0)+amount;}});return Object.keys(map).map(label=>({label:label,amount:opRub_(map[label])}));}
 
 /* Audited write-ahead journal. Every entity is addressed by an immutable ID.
@@ -225,14 +225,15 @@ function opCommand_(auth,body){
     if(!target||!source)throw Error('ACCOUNTABLE_NOT_FOUND');
     if(target.ID===source.ID)throw Error('REIMBURSEMENT_SOURCE_EQUALS_TARGET');
     if(Number(data.expectedRevision)!==Number(target.Revision||1))throw Error('REVISION_CONFLICT');
-    const amount=opMinor_(data.amount),peopleNow=opRows_('AccountablePersons'),incomeNow=opRows_('Income'),expenseNow=opRows_('Expenses'),transferNow=opRows_('CashTransfers');
+    const amount=opMinor_(data.amount),incomeNow=opRows_('Income'),expenseNow=opRows_('Expenses'),transferNow=opRows_('CashTransfers');
     const targetBalance=opAccountableBalanceMinor_(target,incomeNow,expenseNow,transferNow),sourceBalance=opAccountableBalanceMinor_(source,incomeNow,expenseNow,transferNow);
     if(targetBalance==null||sourceBalance==null)throw Error('ACCOUNTABLE_BALANCE_UNKNOWN');
     if(amount>Math.max(0,-targetBalance))throw Error('REIMBURSEMENT_EXCEEDS_OUTSTANDING');
     if(sourceBalance<amount)throw Error('INSUFFICIENT_FUNDING');
     const id=opId_('REIMB');
     changes.push(opChange_('CashTransfers',null,{ID:id,Date:opToday_(),Type:'Возмещение собственных средств',Category:'Возмещение личных средств',Description:'Возмещение собственных средств',AmountMinor:amount,Person_ID:source.ID,ToPerson_ID:target.ID,LegacyPerson:source.Name,Status:'CONFIRMED',LegacyStatus:'Оплачено',Comment:reason,DataStatus:'IMPORTED'}));
-    result={id:id,Accountable_ID:target.ID,Funding_Account_ID:source.ID,amount:opRub_(amount),balanceAfter:opRub_(targetBalance+amount)};
+    changes.push(opChange_('AccountablePersons',target,{}));changes.push(opChange_('AccountablePersons',source,{}));
+    result={id:id,Accountable_ID:target.ID,Funding_Account_ID:source.ID,amount:opRub_(amount),balanceAfter:opRub_(targetBalance+amount),revision:Number(target.Revision||1)+1};
   }else if(action==='editFinance'){
     if(['Income','Expenses','CashTransfers'].indexOf(data.entity)<0)throw Error('INVALID_ENTITY');reason=opRequired_(data.reason,'EDIT_REASON_REQUIRED');const record=opFind_(data.entity,data.entityId);if(!record)throw Error('RECORD_NOT_FOUND');if(Number(data.expectedRevision)!==Number(record.Revision||1))throw Error('REVISION_CONFLICT');changes.push(opChange_(data.entity,record,{AmountMinor:opMinor_(data.amount)}));result={id:record.ID,revision:Number(record.Revision||1)+1};
   }else if(action==='deleteFinance'){
