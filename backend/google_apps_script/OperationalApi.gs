@@ -87,13 +87,25 @@ function opAllowedObjects_(auth,objects){
 }
 function opIncomeSigned_(r){return r.Status==='CONFIRMED'&&Number.isSafeInteger(r.AmountMinor)?(r.Operation==='Возврат клиенту'?-1:1)*r.AmountMinor:0;}
 function opExpenseSigned_(r){return ['CONFIRMED','REFUND'].indexOf(r.Status)>=0&&Number.isSafeInteger(r.AmountMinor)?(r.Status==='REFUND'?-1:1)*r.AmountMinor:0;}
+function opAccountableBalanceMinor_(person,income,expenses,transfers){
+  let balance=opNumber_(person.OpeningMinor),received=0,spent=0,incoming=0,outgoing=0;
+  if(balance==null)return null;
+  income.forEach(r=>{if(r.Recipient_ID===person.ID)received+=opIncomeSigned_(r);});
+  expenses.forEach(r=>{if(r.Person_ID===person.ID)spent+=opExpenseSigned_(r);});
+  transfers.filter(r=>r.Status==='CONFIRMED').forEach(r=>{if(r.ToPerson_ID===person.ID)incoming+=r.AmountMinor;if(r.Person_ID===person.ID)outgoing+=r.AmountMinor;});
+  return balance+received-spent+incoming-outgoing;
+}
 function opBalances_(people,income,expenses,transfers){
   const out={};people.forEach(p=>{
-    let balance=opNumber_(p.OpeningMinor),received=0,spent=0,incoming=0,outgoing=0;
+    let opening=opNumber_(p.OpeningMinor),received=0,spent=0,incoming=0,outgoing=0,reimbursed=0;
     income.forEach(r=>{if(r.Recipient_ID===p.ID)received+=opIncomeSigned_(r);});
     expenses.forEach(r=>{if(r.Person_ID===p.ID)spent+=opExpenseSigned_(r);});
-    transfers.filter(r=>r.Status==='CONFIRMED').forEach(r=>{if(r.ToPerson_ID===p.ID)incoming+=r.AmountMinor;if(r.Person_ID===p.ID)outgoing+=r.AmountMinor;});
-    out[p.Name]={Accountable_ID:p.ID,balance:balance==null?null:opRub_(balance+received-spent+incoming-outgoing),opening:opRub_(balance),clientReceipts:opRub_(received),expenses:opRub_(spent),incomingTransfers:opRub_(incoming),outgoingTransfers:opRub_(outgoing)};
+    transfers.filter(r=>r.Status==='CONFIRMED').forEach(r=>{
+      if(r.ToPerson_ID===p.ID){incoming+=r.AmountMinor;if(r.Type==='Возмещение собственных средств')reimbursed+=r.AmountMinor;}
+      if(r.Person_ID===p.ID)outgoing+=r.AmountMinor;
+    });
+    const balance=opening==null?null:opening+received-spent+incoming-outgoing;
+    out[p.Name]={Accountable_ID:p.ID,revision:Number(p.Revision||1),balance:opRub_(balance),opening:opRub_(opening),clientReceipts:opRub_(received),expenses:opRub_(spent),incomingTransfers:opRub_(incoming),outgoingTransfers:opRub_(outgoing),receivedFromCompany:opRub_(incoming),personalInvested:null,personalReimbursed:opRub_(reimbursed)};
   });return out;
 }
 function opBootstrap_(auth,period){
@@ -113,7 +125,7 @@ function opBootstrap_(auth,period){
     return {id:p.ID,objectId:p.Object_ID,plannedDate:date,plannedAmount:opRub_(amount),actualPaid:opRub_(received),remaining:opRub_(left),stageName:p['Наименование этапа']||p.StageName,status:left==null?'Не заполнено':left===0?'Оплачено':date&&date<opToday_()?'Просрочено':'План',overdueDays:date&&date<opToday_()&&left>0?Math.floor((new Date(opToday_())-new Date(date))/86400000):0};});
   const response={ok:true,api:OP.version,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
     scope:{enforced:true,userId:auth.userId},coverage:{from:settings.COVERAGE_FROM,to:settings.COVERAGE_TO,complete:range.from>=settings.COVERAGE_FROM&&range.to<=settings.COVERAGE_TO},
-    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
+    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,personalReimbursementsV1:finance&&people.length>1,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
     employees:employees.map(r=>({id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind})),
     leads:leads.map(opPublicRow_),surveys:surveys.map(opPublicRow_),techTasks:byObject(opRows_('TechTasks')).map(opPublicRow_),dayPlans:byObject(opRows_('DailyPlans')).filter(r=>r.TechTask_ID).map(opPublicRow_),assignments:byObject(opRows_('Assignments')).map(opPublicRow_),calendar:byObject(opRows_('Calendar')).map(opPublicRow_),media:byObject(opRows_('Media')).map(opPublicRow_),paymentPlan:role==='INSTALLER'?[]:payments,
     payroll:opRows_('SalaryAccruals').filter(r=>full||role==='INSTALLER'&&r.Installer_ID===auth.employeeId).map(opPublicRow_),attention:[],lists:{}};
@@ -123,7 +135,9 @@ function opBootstrap_(auth,period){
     kpis.turnover=opRub_(pi.reduce((n,r)=>n+opIncomeSigned_(r),0));kpis.expenses=opRub_(pe.reduce((n,r)=>n+opExpenseSigned_(r),0));
     const paid=pi.filter(r=>r.Status==='CONFIRMED'&&r.Operation==='Приход');kpis.averagePayment=paid.length?opRub_(Math.round(paid.reduce((n,r)=>n+r.AmountMinor,0)/paid.length)):null;
     const outgoing=pe.filter(r=>r.Status==='CONFIRMED');kpis.averageExpense=outgoing.length?opRub_(Math.round(outgoing.reduce((n,r)=>n+r.AmountMinor,0)/outgoing.length)):null;
-    response.accountable=opBalances_(people,income,expenses,transfers);const balances=Object.values(response.accountable).map(a=>a.balance);kpis.totalAccountable=balances.every(x=>x!=null)?balances.reduce((n,x)=>n+x,0):null;
+    response.accountable=opBalances_(people,income,expenses,transfers);
+    response.fundingAccounts=people.map(p=>({id:p.ID,name:p.Name,balance:opRub_(opAccountableBalanceMinor_(p,income,expenses,transfers)),revision:Number(p.Revision||1)})).filter(p=>p.balance!=null);
+    const balances=Object.values(response.accountable).map(a=>a.balance);kpis.totalAccountable=balances.every(x=>x!=null)?balances.reduce((n,x)=>n+x,0):null;
     response.income=pi.map(r=>opIncomeDto_(r,objects,people));response.expenses=pe.concat(transfers.filter(r=>opInPeriod_(r.Date,range))).map(r=>opExpenseDto_(r,objects,people));response.historyComplete=true;
     kpis.debt=payments.some(p=>p.remaining==null)?null:payments.filter(p=>p.status==='Просрочено').reduce((n,p)=>n+p.remaining,0);
     kpis.plannedReceipts=payments.some(p=>p.remaining==null)?null:payments.filter(p=>p.status==='План').reduce((n,p)=>n+p.remaining,0);
@@ -186,12 +200,12 @@ function opDateRequired_(value){const d=opDate_(value);if(!d)throw Error('INVALI
 function opPick_(source,keys){const out={};keys.forEach(k=>{if(source[k]!==undefined)out[k]=source[k];});return out;}
 function opCommand_(auth,body){
   const action=opStr_(body.action),requestId=opRequired_(body.idempotencyKey||body.requestId,'REQUEST_ID_REQUIRED');if(requestId.length>120)throw Error('INVALID_REQUEST_ID');
-  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','quantity','unit','unitPrice','paymentStatus','accountable','installerId','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','mimeType','mediaType','stage'];
+  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','quantity','unit','unitPrice','paymentStatus','accountable','installerId','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','mimeType','mediaType','stage','Accountable_ID','Funding_Account_ID'];
   const data=opPick_(body,allowed);if(action==='uploadMedia')data.contentHash=opHash_(opStr_(body.base64));
   const hash=opHash_(opCanonical_({action:action,data:data})),key=auth.userId+':'+requestId;
   const old=opRows_('AuditLog').find(r=>r.Transaction_ID===key);if(old){if(old.RequestHash!==hash)throw Error('IDEMPOTENCY_CONFLICT');return Object.assign({ok:true},typeof old.ResultJSON==='string'?JSON.parse(old.ResultJSON):old.ResultJSON);}
   let changes=[],result={},reason=opStr_(data.reason),now=new Date().toISOString();
-  if(['addIncome','addExpense','transfer','editFinance','deleteFinance'].indexOf(action)>=0&&!opFinance_(auth))throw Error('FORBIDDEN_FINANCE');
+  if(['addIncome','addExpense','transfer','editFinance','deleteFinance','reimbursePersonalFunds'].indexOf(action)>=0&&!opFinance_(auth))throw Error('FORBIDDEN_FINANCE');
   if(action==='addIncome'){
     const object=opObjectAccess_(auth,data.objectId),person=opPerson_(data.recipient),amount=opMinor_(data.amount),operation=data.operation||'Приход';if(['Приход','Возврат клиенту'].indexOf(operation)<0)throw Error('INVALID_OPERATION');
     if(data.paymentPlanId){const payment=opFind_('PaymentSchedule',data.paymentPlanId);if(!payment||payment.Object_ID!==object.ID)throw Error('PAYMENT_PLAN_MISMATCH');}
@@ -204,6 +218,21 @@ function opCommand_(auth,body){
     const id=opId_('EXP');changes.push(opChange_('Expenses',null,{ID:id,Date:opDateRequired_(data.date||opToday_()),Type:data.type||'Прочий расход',Category:opRequired_(data.article),Description:opRequired_(data.description||data.comment),AmountMinor:amount,Quantity:Number(data.quantity)||1,Unit:data.unit||null,PriceMinor:data.unitPrice?opMinor_(data.unitPrice):null,Method:opRequired_(data.method),LegacyStatus:data.paymentStatus,Status:status,Person_ID:person.ID,LegacyPerson:person.Name,Object_ID:object?object.ID:null,Installer_ID:data.installerId||null,Comment:data.comment||null,DataStatus:'IMPORTED'}));result={id:id};
   }else if(action==='transfer'){
     const from=opPerson_(data.from),to=opPerson_(data.to);if(from.ID===to.ID)throw Error('TRANSFER_TO_SELF');const id=opId_('TRF');changes.push(opChange_('CashTransfers',null,{ID:id,Date:opDateRequired_(data.date||opToday_()),Type:'Перевод подотчёта',Category:'Внутренний перевод',Description:'Передача между подотчётными лицами',AmountMinor:opMinor_(data.amount),Person_ID:from.ID,ToPerson_ID:to.ID,LegacyPerson:from.Name,Status:'CONFIRMED',LegacyStatus:'Оплачено',Comment:data.comment||null,DataStatus:'IMPORTED'}));result={id:id};
+  }else if(action==='reimbursePersonalFunds'){
+    reason=opRequired_(data.reason,'REIMBURSEMENT_REASON_REQUIRED');
+    const target=opFind_('AccountablePersons',opRequired_(data.Accountable_ID,'ACCOUNTABLE_ID_REQUIRED'));
+    const source=opFind_('AccountablePersons',opRequired_(data.Funding_Account_ID,'FUNDING_ACCOUNT_REQUIRED'));
+    if(!target||!source)throw Error('ACCOUNTABLE_NOT_FOUND');
+    if(target.ID===source.ID)throw Error('REIMBURSEMENT_SOURCE_EQUALS_TARGET');
+    if(Number(data.expectedRevision)!==Number(target.Revision||1))throw Error('REVISION_CONFLICT');
+    const amount=opMinor_(data.amount),peopleNow=opRows_('AccountablePersons'),incomeNow=opRows_('Income'),expenseNow=opRows_('Expenses'),transferNow=opRows_('CashTransfers');
+    const targetBalance=opAccountableBalanceMinor_(target,incomeNow,expenseNow,transferNow),sourceBalance=opAccountableBalanceMinor_(source,incomeNow,expenseNow,transferNow);
+    if(targetBalance==null||sourceBalance==null)throw Error('ACCOUNTABLE_BALANCE_UNKNOWN');
+    if(amount>Math.max(0,-targetBalance))throw Error('REIMBURSEMENT_EXCEEDS_OUTSTANDING');
+    if(sourceBalance<amount)throw Error('INSUFFICIENT_FUNDING');
+    const id=opId_('REIMB');
+    changes.push(opChange_('CashTransfers',null,{ID:id,Date:opToday_(),Type:'Возмещение собственных средств',Category:'Возмещение личных средств',Description:'Возмещение собственных средств',AmountMinor:amount,Person_ID:source.ID,ToPerson_ID:target.ID,LegacyPerson:source.Name,Status:'CONFIRMED',LegacyStatus:'Оплачено',Comment:reason,DataStatus:'IMPORTED'}));
+    result={id:id,Accountable_ID:target.ID,Funding_Account_ID:source.ID,amount:opRub_(amount),balanceAfter:opRub_(targetBalance+amount)};
   }else if(action==='editFinance'){
     if(['Income','Expenses','CashTransfers'].indexOf(data.entity)<0)throw Error('INVALID_ENTITY');reason=opRequired_(data.reason,'EDIT_REASON_REQUIRED');const record=opFind_(data.entity,data.entityId);if(!record)throw Error('RECORD_NOT_FOUND');if(Number(data.expectedRevision)!==Number(record.Revision||1))throw Error('REVISION_CONFLICT');changes.push(opChange_(data.entity,record,{AmountMinor:opMinor_(data.amount)}));result={id:record.ID,revision:Number(record.Revision||1)+1};
   }else if(action==='deleteFinance'){
