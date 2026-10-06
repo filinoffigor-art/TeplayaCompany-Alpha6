@@ -86,7 +86,7 @@ test('hired worker creation makes unique work days and one payroll expense with 
  const days=context.opRows_('WorkDays').filter(r=>r.Installer_ID===first.Installer_ID);assert.equal(days.length,2);assert.deepEqual(days.map(r=>r.Work_Date),['2026-09-12','2026-09-13']);
  assert.equal(context.opRows_('SalaryAccruals').length,1);assert.equal(context.opRows_('SalaryAccruals')[0].AccruedMinor,1000000);assert.equal(context.opRows_('SalaryAccruals')[0].PaidMinor,0);
  assert.equal(context.opRows_('Expenses').length,1);assert.equal(context.opRows_('Expenses')[0].AmountMinor,1000000);assert.equal(context.opRows_('Expenses')[0].Category,'Заработная плата / наёмные работники');
- const bootstrap=context.opBootstrap_(owner,'Месяц');assert.equal(bootstrap.capabilities.hiredWorkersV1,true);assert.equal(bootstrap.employees.find(r=>r.id===first.Installer_ID).workerKind,'HIRED');
+ const bootstrap=context.opBootstrap_(owner,'Месяц');assert.equal(bootstrap.capabilities.hiredWorkersV1,true);assert.equal(bootstrap.employees.find(r=>r.id===first.Installer_ID).workerKind,'HIRED');assert.equal(bootstrap.kpis.expenses,0);assert.equal(bootstrap.kpis.payrollAccrued,10000);
 });
 test('adding hired worker day preserves Installer_ID, advances revision and blocks duplicate work date',()=>{
  tables.Employees=sheet('Employees',[{ID:'I1',Name:'Hired 1',Role:'INSTALLER',Active:true,WorkerKind:'HIRED',Revision:1}]);vm.runInContext('opTables_={}',context);
