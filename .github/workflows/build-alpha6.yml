@@ -2,7 +2,7 @@ name: Build TK4 Stage 1
 on:
   workflow_dispatch:
   push:
-    branches: [ main, codex/stage1 ]
+    branches: [ main, codex/stage1, codex/stage1-continue ]
     paths: [ 'app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/build-alpha6.yml', 'scripts/**', 'backend/**' ]
 permissions:
   contents: read
