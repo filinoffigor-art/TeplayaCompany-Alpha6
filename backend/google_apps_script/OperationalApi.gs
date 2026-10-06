@@ -14,7 +14,7 @@ function opTable_(name){
   const rows=values.map((v,i)=>{const r={};headers.forEach((h,c)=>{if(h)r[h]=v[c]===''?null:v[c];});Object.defineProperty(r,'_row',{value:i+2});return r;}).filter(r=>r.ID);
   return opTables_[name]={sheet:sheet,headers:headers,rows:rows};
 }
-function opHasColumns_(name,columns){const headers=opTable_(name).headers;return columns.every(column=>headers.indexOf(column)>=0);}
+function opHasColumns_(name,columns){try{const headers=opTable_(name).headers;return columns.every(column=>headers.indexOf(column)>=0);}catch(error){return false;}}
 const OP_SOFT_DELETE_TABLES = new Set(['Objects','Clients','Income','Expenses','CashTransfers','Leads','Measurements','TechTasks','Assignments','DailyPlans','PaymentSchedule','Calendar','Media','Employees','SalaryAccruals']);
 function opRows_(name){
   const rows=opTable_(name).rows;
@@ -141,6 +141,8 @@ function opRangesOverlap_(aStart,aEnd,bStart,bEnd){
 function opAssignmentRange_(r){return {start:opDate_(r.Period_Start||r['Назначен с']),end:opDate_(r.Period_End||r['Назначен до'])};}
 function opMinorZero_(x){const n=Number(x);if(x==null||x===''||!Number.isFinite(n)||n<0||!Number.isSafeInteger(Math.round(n*100)))throw Error('INVALID_AMOUNT');return Math.round(n*100);}
 function opAssignmentSchemaReady_(){return opHasColumns_('Assignments',['Parent_Assignment_ID','Payment_Type','DailyRateMinor','Period_Start','Period_End','Actual_Days','AccruedMinor','PaidMinor','UnallocatedFixedMinor','Obligation_ID','Closed_At'])&&opHasColumns_('Calendar',['Assignment_ID','Period_Start','Period_End'])&&opHasColumns_('SalaryAccruals',['Assignment_ID','Obligation_ID','Accrual_Event_ID','Expense_ID','Recognition_Basis','AccruedMinor','PaidMinor']);}
+function opHiredWorkerSchemaReady_(){return opAssignmentSchemaReady_()&&opHasColumns_('WorkDays',['WorkDay_ID','Installer_ID','Assignment_ID','Object_ID','Work_Date','Actual_Days','DailyRateMinor','Accrual_Event_ID','CreatedAt','Actor_ID','Revision']);}
+function opSafeMultiply_(a,b){const n=Number(a)*Number(b);if(!Number.isSafeInteger(n))throw Error('INVALID_AMOUNT');return n;}
 
 function opBootstrap_(auth,period){
   const settings=opSettings_();if(settings.MIGRATION_STATUS!=='READY')throw Error('MIGRATION_NOT_READY');
@@ -160,8 +162,8 @@ function opBootstrap_(auth,period){
   const payrollRows=opRows_('SalaryAccruals'),workforceWrite=(opAdmin_(auth)||role==='PARTNER'||role==='ENGINEER')&&opAssignmentSchemaReady_();
   const response={ok:true,api:OP.version,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
     scope:{enforced:true,userId:auth.userId},coverage:{from:settings.COVERAGE_FROM,to:settings.COVERAGE_TO,complete:range.from>=settings.COVERAGE_FROM&&range.to<=settings.COVERAGE_TO},
-    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,personalReimbursementsV1:finance&&people.length>1,assignmentPeriodsV1:workforceWrite,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
-    employees:employees.map(r=>({id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind})),
+    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,personalReimbursementsV1:finance&&people.length>1,assignmentPeriodsV1:workforceWrite,hiredWorkersV1:workforceWrite&&opHiredWorkerSchemaReady_()},kpis:kpis,objects:publicObjects,
+    employees:employees.map(r=>({id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind,revision:Number(r.Revision||1)})),
     leads:leads.map(opPublicRow_),surveys:surveys.map(opPublicRow_),techTasks:byObject(opRows_('TechTasks')).map(opPublicRow_),dayPlans:byObject(opRows_('DailyPlans')).filter(r=>r.TechTask_ID).map(opPublicRow_),assignments:byObject(opRows_('Assignments')).map(r=>opAssignmentDto_(r,payrollRows)),calendar:byObject(opRows_('Calendar')).map(opPublicRow_),media:byObject(opRows_('Media')).map(opPublicRow_),paymentPlan:role==='INSTALLER'?[]:payments,
     payroll:payrollRows.filter(r=>full||role==='INSTALLER'&&r.Installer_ID===auth.employeeId).map(opPublicRow_),attention:[],lists:{}};
   if(role==='INSTALLER'){response.assignments=response.assignments.filter(r=>r.Installer_ID===auth.employeeId);response.calendar=response.calendar.filter(r=>r.Installer_ID===auth.employeeId);response.techTasks=response.techTasks.map(r=>({TechTask_ID:r.TechTask_ID,Object_ID:r.Object_ID,'План начала':r['План начала'],'План окончания':r['План окончания'],'Комментарий':r['Комментарий']}));}
@@ -235,7 +237,7 @@ function opDateRequired_(value){const d=opDate_(value);if(!d)throw Error('INVALI
 function opPick_(source,keys){const out={};keys.forEach(k=>{if(source[k]!==undefined)out[k]=source[k];});return out;}
 function opCommand_(auth,body){
   const action=opStr_(body.action),requestId=opRequired_(body.idempotencyKey||body.requestId,'REQUEST_ID_REQUIRED');if(requestId.length>120)throw Error('INVALID_REQUEST_ID');
-  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','quantity','unit','unitPrice','paymentStatus','accountable','installerId','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','mimeType','mediaType','stage','Accountable_ID','Funding_Account_ID','Installer_ID','Assignment_ID','Object_ID','transitionDate','returnDate','paymentType','dailyRate','accrueNow','deferAmount','closeObligation'];
+  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','quantity','unit','unitPrice','paymentStatus','accountable','installerId','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','mimeType','mediaType','stage','Accountable_ID','Funding_Account_ID','Installer_ID','Assignment_ID','Object_ID','transitionDate','returnDate','paymentType','dailyRate','accrueNow','deferAmount','closeObligation','name','workDate','actualDays'];
   const data=opPick_(body,allowed);if(action==='uploadMedia')data.contentHash=opHash_(opStr_(body.base64));
   const hash=opHash_(opCanonical_({action:action,data:data})),key=auth.userId+':'+requestId;
   const old=opRows_('AuditLog').find(r=>r.Transaction_ID===key);if(old){if(old.RequestHash!==hash)throw Error('IDEMPOTENCY_CONFLICT');return Object.assign({ok:true},typeof old.ResultJSON==='string'?JSON.parse(old.ResultJSON):old.ResultJSON);}
@@ -329,6 +331,45 @@ function opCommand_(auth,body){
     const targetCal=opId_('CAL');changes.push(opChange_('Calendar',null,{ID:targetCal,Calendar_ID:targetCal,Assignment_ID:targetId,Object_ID:target.ID,TechTask_ID:targetFields.TechTask_ID,Installer_ID:installer.ID,'Монтажник':installer.Name,Period_Start:transition,Period_End:targetEnd,'План начало':transition,'План конец':targetEnd,'Статус':'Подтверждён'}));
     if(returnDate){const returnCal=opId_('CAL');changes.push(opChange_('Calendar',null,{ID:returnCal,Calendar_ID:returnCal,Assignment_ID:returnId,Object_ID:source.Object_ID,TechTask_ID:source.TechTask_ID||null,Installer_ID:installer.ID,'Монтажник':installer.Name,Period_Start:returnDate,Period_End:returnEnd,'План начало':returnDate,'План конец':returnEnd,'Статус':'Запланирован возврат'}));}
     result={sourceAssignmentId:source.ID,newAssignmentId:targetId,returnAssignmentId:returnId,accrualEventId:accrualId,expenseId:expenseId,revision:Number(source.Revision||1)+1};
+  }else if(action==='createHiredWorkerDay'||action==='addHiredWorkerDay'){
+    if(!opHiredWorkerSchemaReady_())throw Error('WORKFORCE_SCHEMA_NOT_READY');
+    if(!opAdmin_(auth)&&['PARTNER','ENGINEER'].indexOf(opRole_(auth))<0)throw Error('FORBIDDEN_WORKFORCE');
+    reason=opRequired_(data.reason,'WORKDAY_REASON_REQUIRED');
+    const object=opObjectAccess_(auth,opRequired_(data.Object_ID,'OBJECT_ID_REQUIRED'));
+    const start=opDateRequired_(data.workDate),actualDays=Number(data.actualDays);
+    if(!Number.isInteger(actualDays)||actualDays<1||actualDays>31)throw Error('INVALID_ACTUAL_DAYS');
+    const dailyRateMinor=opMinor_(data.dailyRate),totalMinor=opSafeMultiply_(dailyRateMinor,actualDays),end=opDateAdd_(start,actualDays-1);
+    let employee,isNew=false;
+    if(action==='createHiredWorkerDay'){
+      const employeeId=opId_('INST');
+      employee={ID:employeeId,Name:opRequired_(data.name,'WORKER_NAME_REQUIRED'),Phone:data.phone||null,Role:'INSTALLER',Active:true,WorkerKind:'HIRED',Revision:1};isNew=true;
+    }else{
+      employee=opFind_('Employees',opRequired_(data.Installer_ID,'INSTALLER_ID_REQUIRED'));
+      if(!employee||employee.WorkerKind!=='HIRED')throw Error('HIRED_WORKER_NOT_FOUND');
+      if(Number(data.expectedRevision)!==Number(employee.Revision||1))throw Error('REVISION_CONFLICT');
+    }
+    const installerId=employee.ID,existingDays=opRows_('WorkDays');
+    const dayDates=[];for(let i=0;i<actualDays;i++)dayDates.push(opDateAdd_(start,i));
+    if(dayDates.some(date=>existingDays.some(r=>r.Installer_ID===installerId&&opDate_(r.Work_Date)===date)))throw Error('WORKDAY_DUPLICATE');
+    const existingAssignments=opRows_('Assignments').filter(r=>r.Installer_ID===installerId);
+    if(existingAssignments.some(r=>{const range=opAssignmentRange_(r);return range.start&&opRangesOverlap_(start,end,range.start,range.end);} ))throw Error('ASSIGNMENT_OVERLAP');
+    const assignmentId=opId_('ASN'),accrualId=opId_('ACCR'),expenseId=opId_('EXP'),calendarId=opId_('CAL');
+    if(isNew)changes.push(opChange_('Employees',null,employee));else changes.push(opChange_('Employees',employee,{}));
+    changes.push(opChange_('Assignments',null,{ID:assignmentId,Assignment_ID:assignmentId,Parent_Assignment_ID:null,TechTask_ID:(opRows_('TechTasks').find(r=>r.Object_ID===object.ID)||{}).ID||null,Object_ID:object.ID,Installer_ID:installerId,'Монтажник':employee.Name,Payment_Type:'DAILY',DailyRateMinor:dailyRateMinor,Period_Start:start,Period_End:end,Actual_Days:actualDays,AccruedMinor:totalMinor,PaidMinor:0,UnallocatedFixedMinor:null,Obligation_ID:null,'Назначен с':start,'Назначен до':end,'Статус':'Выполнено'}));
+    dayDates.forEach(date=>{const workDayId=opId_('WD');changes.push(opChange_('WorkDays',null,{ID:workDayId,WorkDay_ID:workDayId,Installer_ID:installerId,Assignment_ID:assignmentId,Object_ID:object.ID,Work_Date:date,Actual_Days:1,DailyRateMinor:dailyRateMinor,Accrual_Event_ID:accrualId,CreatedAt:now,Actor_ID:auth.userId}));});
+    changes.push(opChange_('SalaryAccruals',null,{ID:accrualId,Accrual_ID:accrualId,Object_ID:object.ID,Installer_ID:installerId,'Монтажник':employee.Name,Assignment_ID:assignmentId,Obligation_ID:null,Accrual_Event_ID:accrualId,Expense_ID:expenseId,Recognition_Basis:'HIRED_WORKDAY','Начислено':opRub_(totalMinor),'Выплачено':0,AccruedMinor:totalMinor,PaidMinor:0}));
+    changes.push(opChange_('Expenses',null,{ID:expenseId,Date:start,Type:'По объекту',Category:'Заработная плата / наёмные работники',Description:'Начисление наёмному работнику: '+opRequired_(data.workType,'WORK_TYPE_REQUIRED'),AmountMinor:totalMinor,Quantity:actualDays,Unit:'день',PriceMinor:dailyRateMinor,Method:'Начисление',LegacyStatus:'Оплачено',Status:'CONFIRMED',Person_ID:null,LegacyPerson:null,Object_ID:object.ID,Installer_ID:installerId,Comment:reason,DataStatus:'IMPORTED'}));
+    changes.push(opChange_('Calendar',null,{ID:calendarId,Calendar_ID:calendarId,Assignment_ID:assignmentId,Object_ID:object.ID,TechTask_ID:(opRows_('TechTasks').find(r=>r.Object_ID===object.ID)||{}).ID||null,Installer_ID:installerId,'Монтажник':employee.Name,Period_Start:start,Period_End:end,'План начало':start,'План конец':end,'Статус':'Факт'}));
+    result={Installer_ID:installerId,Assignment_ID:assignmentId,Accrual_Event_ID:accrualId,Expense_ID:expenseId,amount:opRub_(totalMinor),paid:0,revision:isNew?1:Number(employee.Revision||1)+1};
+  }else if(action==='promoteHiredWorker'){
+    if(!opHiredWorkerSchemaReady_())throw Error('WORKFORCE_SCHEMA_NOT_READY');
+    if(!opAdmin_(auth))throw Error('FORBIDDEN_ADMIN');
+    reason=opRequired_(data.reason,'PROMOTION_REASON_REQUIRED');
+    const employee=opFind_('Employees',opRequired_(data.Installer_ID,'INSTALLER_ID_REQUIRED'));
+    if(!employee||employee.WorkerKind!=='HIRED')throw Error('HIRED_WORKER_NOT_FOUND');
+    if(Number(data.expectedRevision)!==Number(employee.Revision||1))throw Error('REVISION_CONFLICT');
+    changes.push(opChange_('Employees',employee,{WorkerKind:'STAFF',Role:'INSTALLER'}));
+    result={Installer_ID:employee.ID,workerKind:'STAFF',revision:Number(employee.Revision||1)+1};
   }else if(action==='editFinance'){
     if(['Income','Expenses','CashTransfers'].indexOf(data.entity)<0)throw Error('INVALID_ENTITY');reason=opRequired_(data.reason,'EDIT_REASON_REQUIRED');const record=opFind_(data.entity,data.entityId);if(!record)throw Error('RECORD_NOT_FOUND');if(Number(data.expectedRevision)!==Number(record.Revision||1))throw Error('REVISION_CONFLICT');changes.push(opChange_(data.entity,record,{AmountMinor:opMinor_(data.amount)}));result={id:record.ID,revision:Number(record.Revision||1)+1};
   }else if(action==='deleteFinance'){
