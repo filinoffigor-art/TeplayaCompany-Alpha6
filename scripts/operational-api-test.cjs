@@ -23,6 +23,26 @@ test('calendar quarter boundary is inclusive and timezone-stable',()=>{const p=c
 test('same key returns same ID and does not duplicate income',()=>{const b={objectId:'O1',recipient:'P1',amount:123.45,paymentKind:'Аванс',method:'Наличные'};const a=command('addIncome',b),again=command('addIncome',b);assert.equal(a.id,again.id);assert.equal(context.opRows_('Income').length,1);assert.equal(context.opRows_('Income')[0].AmountMinor,12345);});
 test('same key with different payload is rejected',()=>{const b={objectId:'O1',recipient:'P1',amount:100,paymentKind:'Аванс',method:'Наличные'};command('addIncome',b);assert.throws(()=>command('addIncome',{...b,amount:101}),/IDEMPOTENCY_CONFLICT/);});
 test('transfer affects two balances once and never company expenses',()=>{command('transfer',{from:'P1',to:'P2',amount:25});const b=context.opBalances_(context.opRows_('AccountablePersons'),[],[],context.opRows_('CashTransfers'));assert.equal(b['Person 1'].balance,-125);assert.equal(b['Person 2'].balance,25);assert.equal(context.opRows_('Expenses').length,0);});
+test('personal reimbursement is idempotent, bounded and never a second expense',()=>{
+ tables.AccountablePersons=sheet('AccountablePersons',[{ID:'P1',Name:'Person 1',OpeningMinor:-3500000,Revision:1},{ID:'P2',Name:'Person 2',OpeningMinor:10000000,Revision:1}]);vm.runInContext('opTables_={}',context);
+ const payload={Accountable_ID:'P1',Funding_Account_ID:'P2',amount:20000,expectedRevision:1,reason:'Возмещение собственных средств'};
+ const first=command('reimbursePersonalFunds',payload),again=command('reimbursePersonalFunds',payload);
+ assert.equal(first.id,again.id);assert.equal(context.opRows_('CashTransfers').length,1);assert.equal(context.opRows_('Expenses').length,0);
+ const transfer=context.opRows_('CashTransfers')[0];assert.equal(transfer.Type,'Возмещение собственных средств');assert.equal(transfer.AmountMinor,2000000);
+ const balances=context.opBalances_(context.opRows_('AccountablePersons'),context.opRows_('Income'),context.opRows_('Expenses'),context.opRows_('CashTransfers'));
+ assert.equal(balances['Person 1'].balance,-15000);assert.equal(balances['Person 2'].balance,80000);assert.equal(balances['Person 1'].personalReimbursed,20000);
+ const bootstrap=context.opBootstrap_(owner,'Месяц');assert.equal(bootstrap.capabilities.personalReimbursementsV1,true);assert.equal(bootstrap.fundingAccounts.length,2);
+});
+test('personal reimbursement cannot exceed outstanding personal funds',()=>{
+ tables.AccountablePersons=sheet('AccountablePersons',[{ID:'P1',Name:'Person 1',OpeningMinor:-10000,Revision:1},{ID:'P2',Name:'Person 2',OpeningMinor:100000,Revision:1}]);vm.runInContext('opTables_={}',context);
+ assert.throws(()=>command('reimbursePersonalFunds',{Accountable_ID:'P1',Funding_Account_ID:'P2',amount:101,expectedRevision:1,reason:'Too much'}),/REIMBURSEMENT_EXCEEDS_OUTSTANDING/);
+ assert.equal(context.opRows_('CashTransfers').length,0);
+});
+test('personal reimbursement cannot overdraw its funding account',()=>{
+ tables.AccountablePersons=sheet('AccountablePersons',[{ID:'P1',Name:'Person 1',OpeningMinor:-100000,Revision:1},{ID:'P2',Name:'Person 2',OpeningMinor:5000,Revision:1}]);vm.runInContext('opTables_={}',context);
+ assert.throws(()=>command('reimbursePersonalFunds',{Accountable_ID:'P1',Funding_Account_ID:'P2',amount:100,expectedRevision:1,reason:'No funds'}),/INSUFFICIENT_FUNDING/);
+ assert.equal(context.opRows_('CashTransfers').length,0);
+});
 test('financial edit requires reason and revision',()=>{tables.Expenses=sheet('Expenses',[{ID:'X1',AmountMinor:100,Status:'CONFIRMED',Revision:2}]);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2}),/EDIT_REASON_REQUIRED/);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:1,reason:'Correction'}),/REVISION_CONFLICT/);command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2,reason:'Correction'});assert.equal(context.opRows_('Expenses')[0].AmountMinor,200);assert.equal(context.opRows_('AuditLog')[0].CommitState,'COMMITTED');});
 test('finance delete creates tombstone and deleted income never returns to active bootstrap',()=>{
  tables.Income=sheet('Income',[{ID:'INC1',Date:'2026-09-10',Operation:'Приход',PaymentKind:'Аванс',AmountMinor:12000000,Method:'Наличные',Recipient_ID:'P1',Object_ID:'O1',Status:'CONFIRMED',Revision:3}]);
