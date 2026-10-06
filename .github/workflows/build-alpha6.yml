@@ -72,9 +72,10 @@ jobs:
             echo 'Certificate matches Alpha 6.1; original APK update still requires device validation.' > delivery/COMPATIBILITY.txt
           else
             echo 'artifact=TeplayaCompany-v6.3.1-connected-QA-ONLY' >> "$GITHUB_OUTPUT"
-            echo 'NOT AN UPDATE FOR THE INSTALLED ALPHA. Original signing key is unavailable or does not match. Do not uninstall the current app. Data migration test uses a baseline rebuilt with the same CI key; it does not prove compatibility with the original APK.' > delivery/COMPATIBILITY.txt
+            echo 'NOT AN UPDATE FOR THE INSTALLED ALPHA. Original signing key is unavailable or does not match. Do not uninstall the current app. Install TeplayaCompany-v6.3.1-connected-QA-side-by-side.apk instead; it uses package ru.teplayakompaniya.tk4.qa and can coexist with the installed Alpha. Data migration test uses a baseline rebuilt with the same CI key; it does not prove compatibility with the original APK.' > delivery/COMPATIBILITY.txt
           fi
           cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.3.1-connected.apk
+          cp app/build/outputs/apk/qa/app-qa.apk delivery/TeplayaCompany-v6.3.1-connected-QA-side-by-side.apk
           cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.3.1-connected-unsigned.apk
       - name: Enable KVM
         run: |
