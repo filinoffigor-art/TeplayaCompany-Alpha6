@@ -44,6 +44,39 @@ test('personal reimbursement cannot overdraw its funding account',()=>{
  assert.throws(()=>command('reimbursePersonalFunds',{Accountable_ID:'P1',Funding_Account_ID:'P2',amount:100,expectedRevision:1,reason:'No funds'}),/INSUFFICIENT_FUNDING/);
  assert.equal(context.opRows_('CashTransfers').length,0);
 });
+test('fixed assignment move preserves source history, creates bounded periods and accrues once',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,Revision:1}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','Согласованная сумма':60000,Payment_Type:'FIXED',Period_Start:'2026-09-01',Period_End:'2026-09-30',UnallocatedFixedMinor:6000000,Obligation_ID:'OBL1','Назначен с':'2026-09-01','Назначен до':'2026-09-30','Статус':'Назначен',Revision:1}]);
+ tables.Calendar=sheet('Calendar',[{ID:'C1',Calendar_ID:'C1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1',Period_Start:'2026-09-01',Period_End:'2026-09-30','План начало':'2026-09-01','План конец':'2026-09-30','Статус':'Подтверждён',Revision:1}]);
+ vm.runInContext('opTables_={}',context);context.opToday_=()=> '2026-09-10';
+ const payload={Installer_ID:'I1',Assignment_ID:'A1',Object_ID:'O2',transitionDate:'2026-09-10',returnDate:'2026-09-20',expectedRevision:1,paymentType:'FIXED',accrueNow:20000,deferAmount:40000,closeObligation:false,reason:'Переброска на объект O2'};
+ const first=command('moveInstaller',payload),again=command('moveInstaller',payload);assert.equal(first.newAssignmentId,again.newAssignmentId);
+ const assignments=context.opRows_('Assignments');assert.equal(assignments.length,3);
+ const source=assignments.find(r=>r.ID==='A1'),target=assignments.find(r=>r.ID===first.newAssignmentId),back=assignments.find(r=>r.ID===first.returnAssignmentId);
+ assert.equal(source.Period_End,'2026-09-09');assert.equal(source.Revision,2);assert.equal(source.UnallocatedFixedMinor,0);
+ assert.equal(target.Period_Start,'2026-09-10');assert.equal(target.Period_End,'2026-09-19');assert.equal(target.UnallocatedFixedMinor,4000000);assert.equal(target.Obligation_ID,'OBL1');
+ assert.equal(back.Period_Start,'2026-09-20');assert.equal(back.Period_End,'2026-09-30');assert.equal(back.Obligation_ID,'OBL1');assert.equal(back.UnallocatedFixedMinor,null);
+ assert.equal(context.opRows_('SalaryAccruals').length,1);assert.equal(context.opRows_('SalaryAccruals')[0].AccruedMinor,2000000);
+ assert.equal(context.opRows_('Expenses').length,1);assert.equal(context.opRows_('Expenses')[0].AmountMinor,2000000);assert.equal(context.opRows_('Expenses')[0].Installer_ID,'I1');
+ assert.equal(context.opRows_('Calendar').length,3);assert.equal(context.opRows_('Calendar').find(r=>r.ID==='C1').Period_End,'2026-09-09');
+ const bootstrap=context.opBootstrap_(owner,'Месяц');assert.equal(bootstrap.capabilities.assignmentPeriodsV1,true);
+ const dto=bootstrap.assignments.find(r=>r.Assignment_ID===first.newAssignmentId);assert.equal(dto.unallocatedFixedAmount,40000);assert.equal(dto.revision,1);assert.equal(dto.paymentType,'FIXED');
+});
+test('assignment move rejects overlapping installer periods before journal writes',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,Revision:1}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1',Payment_Type:'DAILY',Period_Start:'2026-09-01',Period_End:'2026-09-30','Назначен с':'2026-09-01','Назначен до':'2026-09-30',Revision:1},{ID:'A2',Assignment_ID:'A2',Object_ID:'O2',Installer_ID:'I1',Payment_Type:'DAILY',Period_Start:'2026-09-15',Period_End:'2026-09-18','Назначен с':'2026-09-15','Назначен до':'2026-09-18',Revision:1}]);
+ vm.runInContext('opTables_={}',context);
+ assert.throws(()=>command('moveInstaller',{Installer_ID:'I1',Assignment_ID:'A1',Object_ID:'O2',transitionDate:'2026-09-10',returnDate:'2026-09-20',expectedRevision:1,paymentType:'DAILY',dailyRate:5000,reason:'Overlap'}),/ASSIGNMENT_OVERLAP/);
+ assert.equal(context.opRows_('AuditLog').length,0);assert.equal(context.opRows_('Assignments').length,2);
+});
+test('daily assignment move never converts calendar days into actual days or payroll accrual',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,Revision:1}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1',Payment_Type:'DAILY',DailyRateMinor:400000,Period_Start:'2026-09-01',Period_End:'2026-09-30',Actual_Days:3,'Назначен с':'2026-09-01','Назначен до':'2026-09-30',Revision:1}]);
+ vm.runInContext('opTables_={}',context);
+ const result=command('moveInstaller',{Installer_ID:'I1',Assignment_ID:'A1',Object_ID:'O2',transitionDate:'2026-09-10',expectedRevision:1,paymentType:'DAILY',dailyRate:5000,reason:'Временный переход'});
+ const target=context.opRows_('Assignments').find(r=>r.ID===result.newAssignmentId);assert.equal(target.Actual_Days,0);assert.equal(target.DailyRateMinor,500000);
+ assert.equal(context.opRows_('SalaryAccruals').length,0);assert.equal(context.opRows_('Expenses').length,0);
+});
 test('financial edit requires reason and revision',()=>{tables.Expenses=sheet('Expenses',[{ID:'X1',AmountMinor:100,Status:'CONFIRMED',Revision:2}]);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2}),/EDIT_REASON_REQUIRED/);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:1,reason:'Correction'}),/REVISION_CONFLICT/);command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2,reason:'Correction'});assert.equal(context.opRows_('Expenses')[0].AmountMinor,200);assert.equal(context.opRows_('AuditLog')[0].CommitState,'COMMITTED');});
 test('finance delete creates tombstone and deleted income never returns to active bootstrap',()=>{
  tables.Income=sheet('Income',[{ID:'INC1',Date:'2026-09-10',Operation:'Приход',PaymentKind:'Аванс',AmountMinor:12000000,Method:'Наличные',Recipient_ID:'P1',Object_ID:'O1',Status:'CONFIRMED',Revision:3}]);
