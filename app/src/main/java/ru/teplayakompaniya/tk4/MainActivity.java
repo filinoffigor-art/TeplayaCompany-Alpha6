@@ -171,12 +171,12 @@ public class MainActivity extends Activity {
             root.put("scope",new JSONObject().put("enforced",true).put("userId","QA-OWNER"));
             root.put("coverage",new JSONObject().put("complete",true).put("mode","QA_DEMO"));
             root.put("kpis",new JSONObject()
-                    .put("turnover",2850000).put("turnoverIntermediate",1600000).put("turnoverFinal",1250000)
+                    .put("turnover",2850000).put("turnoverIntermediate",1880000).put("turnoverFinal",790000)
                     .put("expenses",1640000).put("profit",610000).put("closedProfit",610000)
-                    .put("objectsInWork",3).put("objectsInWorkAmount",2050000).put("plannedObjects",2)
-                    .put("leads",18).put("surveys",7).put("surveysCompleted",5).put("surveysScheduled",2)
-                    .put("contracts",6).put("averageCheck",475000).put("debt",320000)
-                    .put("plannedReceipts",1180000).put("remainingToReceive",1500000)
+                    .put("objectsInWork",1).put("objectsInWorkAmount",680000).put("plannedObjects",2)
+                    .put("leads",3).put("surveys",3).put("surveysCompleted",2).put("surveysScheduled",1)
+                    .put("contracts",4).put("averageCheck",600000).put("debt",320000)
+                    .put("plannedReceipts",1180000).put("remainingToReceive",1000000)
                     .put("accountableIgor",-65000).put("accountableKonstantin",145000).put("totalAccountable",80000)
                     .put("averagePayment",356250).put("averageExpense",136667));
             root.put("accountable",new JSONObject()
@@ -212,6 +212,10 @@ public class MainActivity extends Activity {
                     .put(qaRow("{\"id\":\"QA-EXP-002\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"По объекту\",\"article\":\"Фасадные материалы\",\"description\":\"Панели и доборные элементы\",\"amount\":540000,\"object\":\"Химки, ул. Молодёжная\",\"objectId\":\"QA-OBJ-002\",\"date\":\"2026-10-03\",\"responsible\":\"Игорь\"}"))
                     .put(qaRow("{\"id\":\"QA-EXP-003\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"Прочее\",\"article\":\"Реклама\",\"description\":\"Яндекс Директ\",\"amount\":300000,\"object\":\"\",\"objectId\":\"\",\"date\":\"2026-10-04\",\"responsible\":\"Игорь\"}"))
                     .put(qaRow("{\"id\":\"QA-EXP-004\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"Прочее\",\"article\":\"Топливо\",\"description\":\"Выезды инженеров и бригад\",\"amount\":180000,\"object\":\"\",\"objectId\":\"\",\"date\":\"2026-10-05\",\"responsible\":\"Константин\"}")));
+            root.put("leads",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-LEAD-001\",\"date\":\"2026-10-06\",\"name\":\"Антон Беляев\",\"phone\":\"+7 916 555-20-01\",\"source\":\"Яндекс Директ\",\"status\":\"Новый\"}"))
+                    .put(qaRow("{\"id\":\"QA-LEAD-002\",\"date\":\"2026-10-05\",\"name\":\"Ольга Семёнова\",\"phone\":\"+7 925 555-20-02\",\"source\":\"YouTube\",\"status\":\"В работе\"}"))
+                    .put(qaRow("{\"id\":\"QA-LEAD-003\",\"date\":\"2026-10-04\",\"name\":\"Павел Ершов\",\"phone\":\"+7 903 555-20-03\",\"source\":\"Рекомендация\",\"status\":\"В работе\"}")));
             root.put("surveys",new JSONArray()
                     .put(qaRow("{\"Survey_ID\":\"QA-SUR-001\",\"Клиент\":\"Антон Беляев\",\"Телефон\":\"+7 916 555-20-01\",\"Дата\":\"2026-10-06\",\"ConvertedToObject\":\"FALSE\"}"))
                     .put(qaRow("{\"Survey_ID\":\"QA-SUR-002\",\"Клиент\":\"Ольга Семёнова\",\"Телефон\":\"+7 925 555-20-02\",\"Дата\":\"2026-10-05\",\"ConvertedToObject\":\"TRUE\"}"))
@@ -1017,12 +1021,31 @@ public class MainActivity extends Activity {
                 int fd=0;for(PaymentItem p:livePaymentPlan)if(p.remaining>0&&"Просрочено".equals(p.status)){ObjectItem o=findObject(p.objectId);String a=o==null?p.objectId:o.address;content.addView(attention("!",a,money(p.remaining)+" · просрочка "+p.overdue+" дн.",RED,"payments:"+p.objectId));fd++;}if(fd==0)content.addView(emptyState("Просроченной дебиторки нет","По заполненным этапам оплат просрочек не найдено."));content.addView(infoRow("Правило","Дебиторка = только просроченный неоплаченный остаток этапов ТЗ."));break;
             case "contracts":
                 content.addView(infoRow("Логика","Объекты в работе + завершённые в выбранном периоде"));for(ObjectItem o:objects)if(o.status.equals("В работе")||o.status.equals("Завершён")||o.status.equals("Закрыт 100%"))content.addView(clickableInfoRow(o.address,money(o.contract),v->navigate("object:"+o.id)));break;
-            case "avg":content.addView(infoRow("Средний чек API",metric("averageCheck",true)));content.addView(emptyState("Срезы не заполнены","Разбивка по видам работ и полная база договоров ещё не передаются API."));break;
-            case "leads":content.addView(infoRow("Лидов за период",String.valueOf(liveKpiInt("leads",0))));content.addView(infoRow("Источник","Детализация ведётся на листе «Лиды» и синхронизируется с приложением."));break;
+            case "avg":
+                content.addView(infoRow("Средний чек",metric("averageCheck",true)));
+                for(ObjectItem o:objects)if(o.contractKnown)content.addView(clickableInfoRow(o.address+" · "+o.client,money(o.contract),v->navigate("object:"+o.id)));
+                break;
+            case "leads":
+                content.addView(infoRow("Лидов за период",String.valueOf(liveKpiInt("leads",0))));
+                JSONArray leads=snapshot.optJSONArray("leads");int leadRows=0;
+                if(leads!=null)for(int i=0;i<leads.length();i++){JSONObject lead=leads.optJSONObject(i);if(lead==null)continue;leadRows++;
+                    content.addView(clickableInfoRow(lead.optString("date")+" · "+lead.optString("name"),lead.optString("status"),v->showLeadRecord(lead)));
+                }
+                if(leadRows==0)content.addView(emptyState("Строки лидов не переданы","Показатель есть, но API пока не передал первичные записи."));
+                break;
             case "notifications":if(liveAttention.isEmpty())content.addView(emptyState("Уведомлений нет","Критичных событий по текущим данным нет."));else for(AttentionItem a:liveAttention)content.addView(attention("!",a.title,a.subtitle,"red".equals(a.severity)?RED:ORANGE,a.target));break;
             case "expense_object":moneyDialog("EXPENSE");content.addView(infoRow("Действие","Форма расхода открыта"));break;
             default:content.addView(infoRow("Показатель",title));content.addView(clickableInfoRow("Открыть связанный раздел","Перейти",v->navigate(defaultTargetForKpi(key))));
         }
+    }
+
+    private void showLeadRecord(JSONObject lead){
+        new AlertDialog.Builder(this)
+                .setTitle(lead.optString("name","Лид"))
+                .setMessage("ID: "+lead.optString("id","Не заполнено")+"\nДата: "+lead.optString("date","Не заполнено")
+                        +"\nТелефон: "+lead.optString("phone","Не заполнено")+"\nИсточник: "+lead.optString("source","Не заполнено")
+                        +"\nСтатус: "+lead.optString("status","Не заполнено"))
+                .setPositiveButton("Закрыть",null).show();
     }
 
     // ---------- helpers ----------
