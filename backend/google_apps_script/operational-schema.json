@@ -315,5 +315,19 @@
     "PPE_ID",
     "Installer_ID",
     "Revision"
+  ],
+  "WorkDays": [
+    "ID",
+    "WorkDay_ID",
+    "Installer_ID",
+    "Assignment_ID",
+    "Object_ID",
+    "Work_Date",
+    "Actual_Days",
+    "DailyRateMinor",
+    "Accrual_Event_ID",
+    "CreatedAt",
+    "Actor_ID",
+    "Revision"
   ]
 }
