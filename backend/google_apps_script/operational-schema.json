@@ -163,7 +163,18 @@
     "Назначен с",
     "Назначен до",
     "Статус",
-    "Revision"
+    "Revision",
+    "Parent_Assignment_ID",
+    "Payment_Type",
+    "DailyRateMinor",
+    "Period_Start",
+    "Period_End",
+    "Actual_Days",
+    "AccruedMinor",
+    "PaidMinor",
+    "UnallocatedFixedMinor",
+    "Obligation_ID",
+    "Closed_At"
   ],
   "DailyPlans": [
     "ID",
@@ -201,7 +212,10 @@
     "План начало",
     "План конец",
     "Статус",
-    "Revision"
+    "Revision",
+    "Assignment_ID",
+    "Period_Start",
+    "Period_End"
   ],
   "Media": [
     "ID",
@@ -235,7 +249,14 @@
     "Монтажник",
     "Начислено",
     "Выплачено",
-    "Revision"
+    "Revision",
+    "Assignment_ID",
+    "Obligation_ID",
+    "Accrual_Event_ID",
+    "Expense_ID",
+    "Recognition_Basis",
+    "AccruedMinor",
+    "PaidMinor"
   ],
   "Users": [
     "ID",
