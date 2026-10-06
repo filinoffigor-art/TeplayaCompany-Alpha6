@@ -13,11 +13,19 @@ android {
         versionCode 603002
         versionName '6.3.1-connected'
         testInstrumentationRunner 'ru.teplayakompaniya.tk4.Stage1Smoke'
+        manifestPlaceholders = [appName: 'Тёплая Компания 4.0']
     }
 
     buildTypes {
         debug {
             debuggable true
+        }
+        qa {
+            initWith debug
+            applicationIdSuffix '.qa'
+            versionNameSuffix '-qa'
+            manifestPlaceholders = [appName: 'Тёплая Компания 4.0 QA']
+            matchingFallbacks = ['debug']
         }
         release {
             minifyEnabled false
