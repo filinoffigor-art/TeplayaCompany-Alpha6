@@ -20,4 +20,8 @@ adb logcat -d -s AndroidRuntime:E > qa/crashes.txt
 adb shell run-as ru.teplayakompaniya.tk4 cat shared_prefs/tk4_connected.xml > qa/after-upgrade.xml
 grep -q 'legacy-state-must-not-be-deleted' qa/after-upgrade.xml
 grep -q 'STAGE1_SMOKE_PASSED' qa/instrumentation.txt
+adb install app/build/outputs/apk/qa/app-qa.apk
+adb shell pm path ru.teplayakompaniya.tk4 >/dev/null
+adb shell pm path ru.teplayakompaniya.tk4.qa >/dev/null
+printf '%s\n' 'SIDE_BY_SIDE_QA_INSTALL_PASSED: ru.teplayakompaniya.tk4 + ru.teplayakompaniya.tk4.qa' > qa/side-by-side.txt
 if grep -q 'FATAL EXCEPTION' qa/crashes.txt; then exit 1; fi
