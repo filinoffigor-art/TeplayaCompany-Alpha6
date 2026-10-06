@@ -77,6 +77,34 @@ test('daily assignment move never converts calendar days into actual days or pay
  const target=context.opRows_('Assignments').find(r=>r.ID===result.newAssignmentId);assert.equal(target.Actual_Days,0);assert.equal(target.DailyRateMinor,500000);
  assert.equal(context.opRows_('SalaryAccruals').length,0);assert.equal(context.opRows_('Expenses').length,0);
 });
+test('hired worker creation makes unique work days and one payroll expense with idempotent retry',()=>{
+ vm.runInContext('opTables_={}',context);context.opToday_=()=> '2026-09-12';
+ const payload={name:'Temp Worker',phone:'+70000000000',Object_ID:'O1',workDate:'2026-09-12',actualDays:2,dailyRate:5000,workType:'Утепление',reason:'Два фактических рабочих дня'};
+ const first=command('createHiredWorkerDay',payload),again=command('createHiredWorkerDay',payload);assert.equal(first.Installer_ID,again.Installer_ID);assert.equal(first.Assignment_ID,again.Assignment_ID);
+ const employee=context.opRows_('Employees').find(r=>r.ID===first.Installer_ID);assert(employee);assert.equal(employee.WorkerKind,'HIRED');assert.equal(employee.Revision,1);
+ const assignment=context.opRows_('Assignments').find(r=>r.ID===first.Assignment_ID);assert.equal(assignment.Actual_Days,2);assert.equal(assignment.AccruedMinor,1000000);assert.equal(assignment.PaidMinor,0);
+ const days=context.opRows_('WorkDays').filter(r=>r.Installer_ID===first.Installer_ID);assert.equal(days.length,2);assert.deepEqual(days.map(r=>r.Work_Date),['2026-09-12','2026-09-13']);
+ assert.equal(context.opRows_('SalaryAccruals').length,1);assert.equal(context.opRows_('SalaryAccruals')[0].AccruedMinor,1000000);assert.equal(context.opRows_('SalaryAccruals')[0].PaidMinor,0);
+ assert.equal(context.opRows_('Expenses').length,1);assert.equal(context.opRows_('Expenses')[0].AmountMinor,1000000);assert.equal(context.opRows_('Expenses')[0].Category,'Заработная плата / наёмные работники');
+ const bootstrap=context.opBootstrap_(owner,'Месяц');assert.equal(bootstrap.capabilities.hiredWorkersV1,true);assert.equal(bootstrap.employees.find(r=>r.id===first.Installer_ID).workerKind,'HIRED');
+});
+test('adding hired worker day preserves Installer_ID, advances revision and blocks duplicate work date',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Hired 1',Role:'INSTALLER',Active:true,WorkerKind:'HIRED',Revision:1}]);vm.runInContext('opTables_={}',context);
+ const payload={Installer_ID:'I1',expectedRevision:1,Object_ID:'O1',workDate:'2026-09-14',actualDays:1,dailyRate:4500,workType:'Фасад',reason:'Фактический день'};
+ const result=command('addHiredWorkerDay',payload);assert.equal(result.Installer_ID,'I1');assert.equal(result.revision,2);assert.equal(context.opRows_('Employees').find(r=>r.ID==='I1').Revision,2);
+ assert.equal(context.opRows_('WorkDays').length,1);assert.equal(context.opRows_('WorkDays')[0].Work_Date,'2026-09-14');
+ assert.throws(()=>context.opCommand_(owner,{action:'addHiredWorkerDay',requestId:'DUP-WORKDAY',...payload,expectedRevision:2}),/WORKDAY_DUPLICATE/);
+ assert.equal(context.opRows_('WorkDays').length,1);assert.equal(context.opRows_('Expenses').length,1);
+});
+test('hired worker promotion keeps installer, assignments, accruals and expense IDs unchanged',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Hired 1',Role:'INSTALLER',Active:true,WorkerKind:'HIRED',Revision:3}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1',Period_Start:'2026-09-01',Period_End:'2026-09-01',Revision:1}]);
+ tables.SalaryAccruals=sheet('SalaryAccruals',[{ID:'S1',Accrual_ID:'S1',Object_ID:'O1',Installer_ID:'I1',Assignment_ID:'A1',Expense_ID:'E1',AccruedMinor:500000,PaidMinor:0,Revision:1}]);
+ tables.Expenses=sheet('Expenses',[{ID:'E1',Date:'2026-09-01',Category:'Заработная плата / наёмные работники',AmountMinor:500000,Installer_ID:'I1',Status:'CONFIRMED',Revision:1}]);vm.runInContext('opTables_={}',context);
+ const payload={Installer_ID:'I1',expectedRevision:3,reason:'Перевод в постоянные монтажники'};const first=command('promoteHiredWorker',payload),again=command('promoteHiredWorker',payload);assert.equal(first.Installer_ID,again.Installer_ID);assert.equal(first.revision,4);
+ const employee=context.opRows_('Employees').find(r=>r.ID==='I1');assert.equal(employee.WorkerKind,'STAFF');assert.equal(employee.Revision,4);
+ assert.equal(context.opRows_('Assignments')[0].ID,'A1');assert.equal(context.opRows_('SalaryAccruals')[0].ID,'S1');assert.equal(context.opRows_('Expenses')[0].ID,'E1');
+});
 test('financial edit requires reason and revision',()=>{tables.Expenses=sheet('Expenses',[{ID:'X1',AmountMinor:100,Status:'CONFIRMED',Revision:2}]);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2}),/EDIT_REASON_REQUIRED/);assert.throws(()=>command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:1,reason:'Correction'}),/REVISION_CONFLICT/);command('editFinance',{entity:'Expenses',entityId:'X1',amount:2,expectedRevision:2,reason:'Correction'});assert.equal(context.opRows_('Expenses')[0].AmountMinor,200);assert.equal(context.opRows_('AuditLog')[0].CommitState,'COMMITTED');});
 test('finance delete creates tombstone and deleted income never returns to active bootstrap',()=>{
  tables.Income=sheet('Income',[{ID:'INC1',Date:'2026-09-10',Operation:'Приход',PaymentKind:'Аванс',AmountMinor:12000000,Method:'Наличные',Recipient_ID:'P1',Object_ID:'O1',Status:'CONFIRMED',Revision:3}]);
