@@ -31,7 +31,8 @@ test('personal reimbursement is idempotent, bounded and never a second expense',
  const transfer=context.opRows_('CashTransfers')[0];assert.equal(transfer.Type,'Возмещение собственных средств');assert.equal(transfer.AmountMinor,2000000);
  const balances=context.opBalances_(context.opRows_('AccountablePersons'),context.opRows_('Income'),context.opRows_('Expenses'),context.opRows_('CashTransfers'));
  assert.equal(balances['Person 1'].balance,-15000);assert.equal(balances['Person 2'].balance,80000);assert.equal(balances['Person 1'].personalReimbursed,20000);
- const bootstrap=context.opBootstrap_(owner,'Месяц');assert.equal(bootstrap.capabilities.personalReimbursementsV1,true);assert.equal(bootstrap.fundingAccounts.length,2);
+ const bootstrap=context.opBootstrap_(owner,'Месяц');assert.equal(bootstrap.capabilities.personalReimbursementsV1,true);assert.equal(bootstrap.fundingAccounts.length,1);assert.equal(bootstrap.fundingAccounts[0].id,'P2');assert.equal(bootstrap.accountable['Person 1'].revision,2);
+ const history=bootstrap.expenses.find(r=>r.id===first.id);assert(history);assert.equal(history.entity,'CashTransfers');
 });
 test('personal reimbursement cannot exceed outstanding personal funds',()=>{
  tables.AccountablePersons=sheet('AccountablePersons',[{ID:'P1',Name:'Person 1',OpeningMinor:-10000,Revision:1},{ID:'P2',Name:'Person 2',OpeningMinor:100000,Revision:1}]);vm.runInContext('opTables_={}',context);
