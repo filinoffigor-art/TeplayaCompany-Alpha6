@@ -103,6 +103,7 @@ public class MainActivity extends Activity {
     private ObjectAnimator loadingPulse;
     private float refreshStartX, refreshStartY;
     private boolean refreshEligible;
+    private boolean qaDemoMode = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -111,7 +112,8 @@ public class MainActivity extends Activity {
         loadDemoState();
         api = new ApiClient(this, prefs);
         apiRole=api.getRole();
-        restoreSnapshot();
+        if(isQaBuild() && !api.hasToken()) loadQaDemoSnapshot();
+        else restoreSnapshot();
         configureSystemBars();
 
         root = new FrameLayout(this);
@@ -122,7 +124,7 @@ public class MainActivity extends Activity {
         if (ApiClient.isConfigured()) {
             if (api.hasToken()) {
                 new Handler(Looper.getMainLooper()).postDelayed(() -> syncNow(false), 350);
-            } else {
+            } else if(!isQaBuild()) {
                 new Handler(Looper.getMainLooper()).postDelayed(this::showPairingDialog, 500);
             }
         }
@@ -151,6 +153,100 @@ public class MainActivity extends Activity {
         objects.clear(); installers.clear(); txs.clear(); surveys.clear(); engineers.clear(); managers.clear(); techTasks.clear();
         liveKpis.clear(); liveAttention.clear(); livePaymentPlan.clear(); liveMedia.clear(); liveCalendar.clear();
         igorBalance=0; konstantinBalance=0;
+    }
+
+    private boolean isQaBuild(){
+        return getPackageName()!=null && getPackageName().endsWith(".qa");
+    }
+
+    private JSONObject qaRow(String json) throws Exception { return new JSONObject(json); }
+
+    private void loadQaDemoSnapshot(){
+        try{
+            JSONObject root=new JSONObject();
+            root.put("ok",true);
+            root.put("api","tk4-v3-connected");
+            root.put("serverTime","06.10.2026 21:21 · QA DEMO");
+            root.put("user",new JSONObject().put("id","QA-OWNER").put("name","Игорь · QA DEMO").put("role","OWNER").put("finance",true));
+            root.put("scope",new JSONObject().put("enforced",true).put("userId","QA-OWNER"));
+            root.put("coverage",new JSONObject().put("complete",true).put("mode","QA_DEMO"));
+            root.put("kpis",new JSONObject()
+                    .put("turnover",2850000).put("turnoverIntermediate",1600000).put("turnoverFinal",1250000)
+                    .put("expenses",1640000).put("profit",610000).put("closedProfit",610000)
+                    .put("objectsInWork",3).put("objectsInWorkAmount",2050000).put("plannedObjects",2)
+                    .put("leads",18).put("surveys",7).put("surveysCompleted",5).put("surveysScheduled",2)
+                    .put("contracts",6).put("averageCheck",475000).put("debt",320000)
+                    .put("plannedReceipts",1180000).put("remainingToReceive",1500000)
+                    .put("accountableIgor",-65000).put("accountableKonstantin",145000).put("totalAccountable",80000)
+                    .put("averagePayment",356250).put("averageExpense",136667));
+            root.put("accountable",new JSONObject()
+                    .put("Игорь",new JSONObject().put("balance",-65000).put("expenses",215000).put("receivedFromCompany",150000).put("outgoingTransfers",0).put("personalInvested",65000).put("personalReimbursed",0))
+                    .put("Константин",new JSONObject().put("balance",145000).put("expenses",305000).put("receivedFromCompany",450000).put("outgoingTransfers",0).put("personalInvested",0).put("personalReimbursed",0)));
+
+            JSONArray objects=new JSONArray();
+            objects.put(qaRow("{\"id\":\"QA-OBJ-001\",\"address\":\"Истра, КП Лесной\",\"client\":\"Алексей Воронцов\",\"phone\":\"+7 916 555-10-01\",\"workType\":\"Комплексное утепление\",\"status\":\"В работе\",\"progress\":65,\"contract\":680000,\"paid\":430000,\"engineer\":\"Андрей Морозов\",\"responsible\":\"Мария Соколова\",\"brigade\":\"Бригада №1\",\"planStart\":\"2026-10-03\",\"planEnd\":\"2026-10-09\",\"revision\":1}"));
+            objects.put(qaRow("{\"id\":\"QA-OBJ-002\",\"address\":\"Химки, ул. Молодёжная\",\"client\":\"Светлана Орлова\",\"phone\":\"+7 925 555-10-02\",\"workType\":\"Фасад + утепление\",\"status\":\"Подтверждён\",\"progress\":10,\"contract\":520000,\"paid\":180000,\"engineer\":\"Андрей Морозов\",\"responsible\":\"Мария Соколова\",\"brigade\":\"Бригада №2\",\"planStart\":\"2026-10-11\",\"planEnd\":\"2026-10-18\",\"revision\":1}"));
+            objects.put(qaRow("{\"id\":\"QA-OBJ-003\",\"address\":\"Раменское, ул. Полевая\",\"client\":\"Николай Петров\",\"phone\":\"+7 903 555-10-03\",\"workType\":\"Утепление мансарды\",\"status\":\"Закрыт 100%\",\"progress\":100,\"contract\":790000,\"paid\":790000,\"engineer\":\"Олег Крылов\",\"responsible\":\"Мария Соколова\",\"brigade\":\"Бригада №1\",\"planStart\":\"2026-09-22\",\"planEnd\":\"2026-09-28\",\"revision\":1}"));
+            objects.put(qaRow("{\"id\":\"QA-OBJ-004\",\"address\":\"Дмитровский район, д. Озерецкое\",\"client\":\"Елена Миронова\",\"phone\":\"+7 977 555-10-04\",\"workType\":\"Утепление пола\",\"status\":\"Запланирован\",\"progress\":0,\"contract\":410000,\"paid\":0,\"engineer\":\"Олег Крылов\",\"responsible\":\"Денис Романов\",\"brigade\":\"Не назначены\",\"planStart\":\"2026-10-20\",\"planEnd\":\"2026-10-23\",\"revision\":1}"));
+            root.put("objects",objects);
+
+            JSONArray employees=new JSONArray();
+            employees.put(qaRow("{\"id\":\"QA-EMP-001\",\"name\":\"Сергей Волков\",\"role\":\"INSTALLER\",\"workerKind\":\"STAFF\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-002\",\"name\":\"Максим Лебедев\",\"role\":\"INSTALLER\",\"workerKind\":\"STAFF\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-003\",\"name\":\"Андрей Морозов\",\"role\":\"ENGINEER\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-004\",\"name\":\"Олег Крылов\",\"role\":\"ENGINEER\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-005\",\"name\":\"Мария Соколова\",\"role\":\"MANAGER\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-006\",\"name\":\"Денис Романов\",\"role\":\"MANAGER\",\"active\":\"TRUE\"}"));
+            root.put("employees",employees);
+
+            root.put("payroll",new JSONArray()
+                    .put(qaRow("{\"Installer_ID\":\"QA-EMP-001\",\"Начислено\":148000,\"Выплачено\":100000}"))
+                    .put(qaRow("{\"Installer_ID\":\"QA-EMP-002\",\"Начислено\":132000,\"Выплачено\":90000}")));
+            root.put("income",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-INC-001\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Аванс\",\"amount\":180000,\"object\":\"Химки, ул. Молодёжная\",\"objectId\":\"QA-OBJ-002\",\"date\":\"2026-10-01\",\"recipient\":\"Игорь\",\"comment\":\"Аванс по договору\"}"))
+                    .put(qaRow("{\"id\":\"QA-INC-002\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Промежуточный платёж\",\"amount\":430000,\"object\":\"Истра, КП Лесной\",\"objectId\":\"QA-OBJ-001\",\"date\":\"2026-10-04\",\"recipient\":\"Константин\",\"comment\":\"Оплата второго этапа\"}"))
+                    .put(qaRow("{\"id\":\"QA-INC-003\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Окончательный платёж\",\"amount\":790000,\"object\":\"Раменское, ул. Полевая\",\"objectId\":\"QA-OBJ-003\",\"date\":\"2026-10-05\",\"recipient\":\"Игорь\",\"comment\":\"Объект закрыт\"}"))
+                    .put(qaRow("{\"id\":\"QA-INC-004\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Промежуточный платёж\",\"amount\":1450000,\"object\":\"QA демо-сводка\",\"objectId\":\"QA-OBJ-001\",\"date\":\"2026-10-06\",\"recipient\":\"Константин\",\"comment\":\"Тестовая операция для оборота\"}")));
+            root.put("expenses",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-EXP-001\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"По объекту\",\"article\":\"Материалы\",\"description\":\"Isover KV-50\",\"amount\":620000,\"object\":\"Истра, КП Лесной\",\"objectId\":\"QA-OBJ-001\",\"date\":\"2026-10-02\",\"responsible\":\"Константин\"}"))
+                    .put(qaRow("{\"id\":\"QA-EXP-002\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"По объекту\",\"article\":\"Фасадные материалы\",\"description\":\"Панели и доборные элементы\",\"amount\":540000,\"object\":\"Химки, ул. Молодёжная\",\"objectId\":\"QA-OBJ-002\",\"date\":\"2026-10-03\",\"responsible\":\"Игорь\"}"))
+                    .put(qaRow("{\"id\":\"QA-EXP-003\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"Прочее\",\"article\":\"Реклама\",\"description\":\"Яндекс Директ\",\"amount\":300000,\"object\":\"\",\"objectId\":\"\",\"date\":\"2026-10-04\",\"responsible\":\"Игорь\"}"))
+                    .put(qaRow("{\"id\":\"QA-EXP-004\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"Прочее\",\"article\":\"Топливо\",\"description\":\"Выезды инженеров и бригад\",\"amount\":180000,\"object\":\"\",\"objectId\":\"\",\"date\":\"2026-10-05\",\"responsible\":\"Константин\"}")));
+            root.put("surveys",new JSONArray()
+                    .put(qaRow("{\"Survey_ID\":\"QA-SUR-001\",\"Клиент\":\"Антон Беляев\",\"Телефон\":\"+7 916 555-20-01\",\"Дата\":\"2026-10-06\",\"ConvertedToObject\":\"FALSE\"}"))
+                    .put(qaRow("{\"Survey_ID\":\"QA-SUR-002\",\"Клиент\":\"Ольга Семёнова\",\"Телефон\":\"+7 925 555-20-02\",\"Дата\":\"2026-10-05\",\"ConvertedToObject\":\"TRUE\"}"))
+                    .put(qaRow("{\"Survey_ID\":\"QA-SUR-003\",\"Клиент\":\"Павел Ершов\",\"Телефон\":\"+7 903 555-20-03\",\"Дата\":\"2026-10-04\",\"ConvertedToObject\":\"FALSE\"}")));
+            root.put("techTasks",new JSONArray()
+                    .put(qaRow("{\"TechTask_ID\":\"QA-TZ-001\",\"Object_ID\":\"QA-OBJ-001\",\"Статус ТЗ\":\"Готово\"}"))
+                    .put(qaRow("{\"TechTask_ID\":\"QA-TZ-002\",\"Object_ID\":\"QA-OBJ-002\",\"Статус ТЗ\":\"Готово\"}")));
+            root.put("assignments",new JSONArray()
+                    .put(qaRow("{\"Assignment_ID\":\"QA-ASN-001\",\"Object_ID\":\"QA-OBJ-001\",\"Installer_ID\":\"QA-EMP-001\",\"Монтажник\":\"Сергей Волков\",\"Согласованная сумма\":148000}"))
+                    .put(qaRow("{\"Assignment_ID\":\"QA-ASN-002\",\"Object_ID\":\"QA-OBJ-001\",\"Installer_ID\":\"QA-EMP-002\",\"Монтажник\":\"Максим Лебедев\",\"Согласованная сумма\":132000}"))
+                    .put(qaRow("{\"Assignment_ID\":\"QA-ASN-003\",\"Object_ID\":\"QA-OBJ-002\",\"Installer_ID\":\"QA-EMP-002\",\"Монтажник\":\"Максим Лебедев\",\"Согласованная сумма\":98000}")));
+            root.put("dayPlans",new JSONArray()
+                    .put(qaRow("{\"Object_ID\":\"QA-OBJ-001\",\"День №\":1,\"Задача\":\"Подготовка и задувка пола\",\"План объём\":\"120 м²\"}"))
+                    .put(qaRow("{\"Object_ID\":\"QA-OBJ-001\",\"День №\":2,\"Задача\":\"Скаты и примыкания\",\"План объём\":\"95 м²\"}"))
+                    .put(qaRow("{\"Object_ID\":\"QA-OBJ-002\",\"День №\":1,\"Задача\":\"Подготовка фасада\",\"План объём\":\"160 м²\"}")));
+            root.put("paymentPlan",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-PAY-001\",\"objectId\":\"QA-OBJ-001\",\"plannedDate\":\"2026-10-05\",\"status\":\"Просрочено\",\"stageName\":\"Этап 3\",\"plannedAmount\":320000,\"actualPaid\":0,\"remaining\":320000,\"overdueDays\":1}"))
+                    .put(qaRow("{\"id\":\"QA-PAY-002\",\"objectId\":\"QA-OBJ-002\",\"plannedDate\":\"2026-10-12\",\"status\":\"План\",\"stageName\":\"Этап 2\",\"plannedAmount\":340000,\"actualPaid\":0,\"remaining\":340000,\"overdueDays\":0}"))
+                    .put(qaRow("{\"id\":\"QA-PAY-003\",\"objectId\":\"QA-OBJ-004\",\"plannedDate\":\"2026-10-20\",\"status\":\"План\",\"stageName\":\"Аванс\",\"plannedAmount\":410000,\"actualPaid\":0,\"remaining\":410000,\"overdueDays\":0}"))
+                    .put(qaRow("{\"id\":\"QA-PAY-004\",\"objectId\":\"QA-OBJ-001\",\"plannedDate\":\"2026-10-09\",\"status\":\"План\",\"stageName\":\"Финальный этап\",\"plannedAmount\":430000,\"actualPaid\":0,\"remaining\":430000,\"overdueDays\":0}")));
+            root.put("calendar",new JSONArray()
+                    .put(qaRow("{\"Calendar_ID\":\"QA-CAL-001\",\"Object_ID\":\"QA-OBJ-001\",\"Installer_ID\":\"QA-EMP-001\",\"Монтажник\":\"Сергей Волков\",\"План начала\":\"2026-10-03\",\"План окончания\":\"2026-10-09\",\"Статус\":\"В работе\"}"))
+                    .put(qaRow("{\"Calendar_ID\":\"QA-CAL-002\",\"Object_ID\":\"QA-OBJ-002\",\"Installer_ID\":\"QA-EMP-002\",\"Монтажник\":\"Максим Лебедев\",\"План начала\":\"2026-10-11\",\"План окончания\":\"2026-10-18\",\"Статус\":\"Запланирован\"}")));
+            root.put("media",new JSONArray()
+                    .put(qaRow("{\"Media_ID\":\"QA-MED-001\",\"Object_ID\":\"QA-OBJ-001\",\"Дата\":\"2026-10-05\",\"Тип\":\"Фото\",\"Этап\":\"Процесс\",\"URL\":\"\",\"Комментарий\":\"Тестовый фотоотчёт\"}")));
+            root.put("attention",new JSONArray()
+                    .put(qaRow("{\"severity\":\"red\",\"title\":\"Просрочен платёж 320 000 ₽\",\"subtitle\":\"Истра, КП Лесной · 1 день\",\"target\":\"payments:QA-OBJ-001\"}"))
+                    .put(qaRow("{\"severity\":\"orange\",\"title\":\"Монтаж начинается 11 октября\",\"subtitle\":\"Химки, ул. Молодёжная\",\"target\":\"object:QA-OBJ-002\"}"))
+                    .put(qaRow("{\"severity\":\"orange\",\"title\":\"2 замера требуют обработки\",\"subtitle\":\"Новые тестовые замеры\",\"target\":\"surveys\"}")));
+            applyBootstrap(root);
+            qaDemoMode=true;scopedData=true;snapshotPeriod=currentPeriod;liveSyncOk=true;
+            lastSyncText="QA DEMO · тестовые данные · 06.10.2026";
+        }catch(Exception e){
+            seedDemoData();qaDemoMode=false;lastSyncText="QA DEMO не загрузился";
+        }
     }
 
     // ---------- navigation ----------
@@ -877,7 +973,8 @@ public class MainActivity extends Activity {
         beginScreen(true);appBar("Настройки","Профиль и приложение");
         LinearLayout profile=h();profile.addView(avatarView(),new LinearLayout.LayoutParams(dp(54),dp(54)));TextView name=tv(leaderName,20,INK,Typeface.BOLD);name.setPadding(dp(12),0,0,0);profile.addView(name,new LinearLayout.LayoutParams(0,-2,1));profile.setOnClickListener(v->editProfileDialog());content.addView(profile);
         content.addView(clickableInfoRow("Профиль","Имя и фото",v->editProfileDialog()));
-        if(Stage1Rules.isAdmin(apiRole))content.addView(clickableInfoRow("Пользователи и роли","Управление доступом",v->unavailable("Пользователи и роли","Изменение ролей требует административного API. Локальная смена роли запрещена.")));
+        if(isQaBuild()&&qaDemoMode)content.addView(clickableInfoRow("Тестовая роль","Сменить роль только в QA",v->roleDialog()));
+        else if(Stage1Rules.isAdmin(apiRole))content.addView(clickableInfoRow("Пользователи и роли","Управление доступом",v->unavailable("Пользователи и роли","Изменение ролей требует административного API. Локальная смена роли запрещена.")));
         content.addView(clickableInfoRow("Интерфейс",themeMode,v->themeDialog()));
         for(String key:new String[]{"haptic","animations"}){Switch sw=new Switch(this);sw.setText(key.equals("haptic")?"Виброотклик":"Анимации");sw.setChecked(prefs.getBoolean(key,true));sw.setOnCheckedChangeListener((b,checked)->prefs.edit().putBoolean(key,checked).apply());content.addView(sw);}
         content.addView(clickableInfoRow("Уведомления","Центр событий",v->navigate("kpi:notifications")));
@@ -1231,7 +1328,10 @@ public class MainActivity extends Activity {
     private void newLeadDialog(){LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText src=edit("Источник");f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Источник",src));new AlertDialog.Builder(this).setTitle("Новая заявка").setView(f).setPositiveButton("Сохранить",(d,w)->{if(api==null||!api.hasToken()){showPairingDialog();return;}try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("source",src.getText().toString().trim());b.put("date",LocalDate.now().toString());api.mutate("addLead",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Лид записан в таблицу");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError(e.toString());}}).setNegativeButton("Отмена",null).show();}
     private void syncNow(boolean showMessage){
         if(syncInProgress)return;
-        if(api==null||!api.hasToken()){if(showMessage)showPairingDialog();return;}
+        if(api==null||!api.hasToken()){
+            if(isQaBuild()){loadQaDemoSnapshot();render();if(showMessage)toast("QA DEMO: тестовые данные обновлены");return;}
+            if(showMessage)showPairingDialog();return;
+        }
         final String requestedPeriod=currentPeriod, requestedUser=api.getUserId();
         syncInProgress=true;render();
         api.bootstrap(requestedPeriod,new ApiClient.Callback(){
@@ -1282,7 +1382,15 @@ public class MainActivity extends Activity {
         startActivityForResult(pick,REQ_AVATAR);
     }).setNegativeButton("Отмена",null).show();}
     private void themeDialog(){String[] a={"Светлая","Тёмная","Как на устройстве"};new AlertDialog.Builder(this).setTitle("Тема приложения").setSingleChoiceItems(a,Arrays.asList(a).indexOf(themeMode),(d,w)->{themeMode=a[w];if(themeMode.equals("Как на устройстве"))themeMode="Светлая";saveDemoState();d.dismiss();configureSystemBars();render();}).show();}
-    private void roleDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
+    private void roleDialog(){
+        if(!isQaBuild()||!qaDemoMode){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");return;}
+        final String[] labels={"Руководитель","Менеджер","Инженер","Монтажник"};
+        final String[] roles={"OWNER","MANAGER","ENGINEER","INSTALLER"};
+        new AlertDialog.Builder(this).setTitle("Тестовая роль · только QA").setItems(labels,(d,w)->{
+            apiRole=roles[w];demoRole=labels[w];financeGranted="OWNER".equals(apiRole);scopedData=true;
+            leaderName=labels[w]+" · QA DEMO";history.clear();screen="main";render();toast("QA: "+labels[w]);
+        }).show();
+    }
     private void showDirectoriesDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
     private void confirmReset(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
 
@@ -1335,7 +1443,7 @@ public class MainActivity extends Activity {
                     String userId=who.getSelectedItemPosition()==0?"U-IGOR":"U-KONSTANTIN";
                     api.pair(userId,code.getText().toString().trim(),new ApiClient.Callback(){
                         public void onSuccess(JSONObject json){
-                            seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;financeGranted=false;
+                            qaDemoMode=false;seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;financeGranted=false;
                             apiRole=api.getRole();leaderName=api.getUserName();demoRole=apiRole;history.clear();screen="main";restoreSnapshot();render();
                             toast("Устройство подключено: "+json.optString("name"));
                             syncNow(true);
@@ -1402,7 +1510,7 @@ public class MainActivity extends Activity {
             vals[0]+=jsonLong(p,"Начислено"); vals[1]+=jsonLong(p,"Выплачено");
         }
 
-        installers.clear(); engineers.clear();
+        installers.clear(); engineers.clear(); managers.clear();
         JSONArray ea=root.optJSONArray("employees");
         if(ea!=null)for(int x=0;x<ea.length();x++){
             JSONObject e=ea.getJSONObject(x);
@@ -1416,9 +1524,10 @@ public class MainActivity extends Activity {
             if(role.equalsIgnoreCase("ENGINEER")||role.equalsIgnoreCase("PARTNER")||role.toLowerCase(Locale.ROOT).contains("инжен")||role.toLowerCase(Locale.ROOT).contains("партн")){
                 engineers.add(new EngineerItem(e.optString("id"),e.optString("name"),0,0,0,0));
             }
+            if(role.equalsIgnoreCase("MANAGER")||role.toLowerCase(Locale.ROOT).contains("менедж")){
+                managers.add(new ManagerItem(e.optString("id"),e.optString("name"),6,3,2,2));
+            }
         }
-
-        managers.clear();
 
         txs.clear();
         JSONArray income=root.optJSONArray("income");
@@ -1570,7 +1679,9 @@ public class MainActivity extends Activity {
         }catch(Exception ignored){lastSyncText="Сохранённые данные недоступны";}
     }
     private void selectPeriod(String value){
-        currentPeriod=value;seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;
+        currentPeriod=value;
+        if(isQaBuild() && (api==null || !api.hasToken())){loadQaDemoSnapshot();saveDemoState();render();return;}
+        seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;
         saveDemoState();restoreSnapshot();render();syncNow(false);
     }
     private View avatarView(){
