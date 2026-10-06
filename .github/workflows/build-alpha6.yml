@@ -43,7 +43,7 @@ jobs:
           node scripts/operational-api-test.cjs
           python3 scripts/test-normalize-september.py
       - name: Compile, unit tests, lint and APKs
-        run: ./gradle-8.11.1/bin/gradle testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease --no-daemon --stacktrace
+        run: ./gradle-8.11.1/bin/gradle testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleQa assembleRelease --no-daemon --stacktrace
       - name: Build baseline with the same CI key for data migration test
         run: |
           mkdir baseline
