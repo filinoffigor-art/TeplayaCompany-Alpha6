@@ -112,8 +112,7 @@ public class MainActivity extends Activity {
         loadDemoState();
         api = new ApiClient(this, prefs);
         apiRole=api.getRole();
-        if(isQaBuild() && !api.hasToken()) loadQaDemoSnapshot();
-        else restoreSnapshot();
+        restoreSnapshot();
         configureSystemBars();
 
         root = new FrameLayout(this);
@@ -124,7 +123,7 @@ public class MainActivity extends Activity {
         if (ApiClient.isConfigured()) {
             if (api.hasToken()) {
                 new Handler(Looper.getMainLooper()).postDelayed(() -> syncNow(false), 350);
-            } else if(!isQaBuild()) {
+            } else {
                 new Handler(Looper.getMainLooper()).postDelayed(this::showPairingDialog, 500);
             }
         }
@@ -1354,8 +1353,8 @@ public class MainActivity extends Activity {
     private void syncNow(boolean showMessage){
         if(syncInProgress)return;
         if(api==null||!api.hasToken()){
-            if(isQaBuild()){loadQaDemoSnapshot();render();if(showMessage)toast("QA DEMO: тестовые данные обновлены");return;}
-            if(showMessage)showPairingDialog();return;
+            if(showMessage)showPairingDialog();
+            return;
         }
         final String requestedPeriod=currentPeriod, requestedUser=api.getUserId();
         syncInProgress=true;render();
