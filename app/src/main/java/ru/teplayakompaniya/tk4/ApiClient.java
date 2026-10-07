@@ -66,7 +66,7 @@ public final class ApiClient {
             JSONObject b = new JSONObject();
             b.put("action", "pair");
             b.put("requestId", requestId());
-            b.put("userId", userId);
+            if (userId != null && !userId.trim().isEmpty()) b.put("userId", userId.trim());
             b.put("pairingCode", pairingCode);
             b.put("deviceId", getDeviceId());
             postRaw(b, new Callback() {
