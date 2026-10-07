@@ -1653,6 +1653,8 @@ public class MainActivity extends Activity {
         else if("DELETE_REASON_REQUIRED".equals(error))message="Укажите причину удаления.";
         else if("FORBIDDEN_FINANCE".equals(error))message="У вашей роли нет права изменять финансовые операции.";
         else if("FORBIDDEN_TECH".equals(error))message="У вашей роли нет права изменять техническое задание.";
+        else if("FORBIDDEN_OBJECTS".equals(error))message="У вашей роли нет права изменять этот объект.";
+        else if("FORBIDDEN_WORKFORCE".equals(error))message="У вашей роли нет права менять назначения монтажников.";
         else if("CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE".equals(error))message="Существующую строку ТЗ нельзя удалить молча. Оставьте её в ТЗ; отдельное удаление будет подтверждаться отдельно.";
         else if("PAYMENT_PLAN_BELOW_RECEIVED".equals(error))message="Плановый платёж нельзя уменьшить ниже уже полученной по этому этапу суммы.";
         else if("TECH_TASK_EDIT_REASON_REQUIRED".equals(error))message="Укажите причину изменения технического задания.";
