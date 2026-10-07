@@ -46,7 +46,7 @@ jobs:
       - name: Static contracts
         run: |
           grep -q "applicationId 'ru.teplayakompaniya.tk4'" app/build.gradle
-          grep -q "versionCode 603009" app/build.gradle
+          grep -q "versionCode 603010" app/build.gradle
           grep -q 'AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
           if grep -R 'WebView\|Log\.\|System.out.print' app/src/main/java; then exit 1; fi
       - name: Backend and migration contracts
@@ -60,33 +60,33 @@ jobs:
           mkdir baseline
           git archive 4ee39e807acdf085113c9204db46e28dce008737 | tar -x -C baseline
           ./gradle-8.11.1/bin/gradle -p baseline assembleDebug --no-daemon
-      - name: Download actual previous APK for certificate comparison
+      - name: Download installed parent APK for certificate comparison
         id: previous
-        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: TeplayaCompany-v6.1.0-alpha6.1
+          name: TeplayaCompany-v6.3.8-parent-FRESH-INSTALL
           path: previous-apk
-          run-id: 35093487753
+          run-id: 37598741971
           github-token: ${{ github.token }}
-      - name: Classify APK compatibility
+      - name: Verify update signature matches installed parent
         id: compatibility
         run: |
           mkdir -p delivery qa
           signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
           current=$($signer verify --print-certs app/build/outputs/apk/debug/app-debug.apk | grep 'certificate SHA-256 digest')
-          previous_file=$(find previous-apk -name '*.apk' -print -quit 2>/dev/null || true)
-          previous=''
-          if [ -n "$previous_file" ]; then previous=$($signer verify --print-certs "$previous_file" | grep 'certificate SHA-256 digest'); fi
-          if [ -n "$previous" ] && [ "$current" = "$previous" ]; then
-            echo 'artifact=TeplayaCompany-v6.3.8-parent-compatible' >> "$GITHUB_OUTPUT"
-            echo 'Certificate matches Alpha 6.1; original APK update still requires device validation.' > delivery/COMPATIBILITY.txt
-          else
-            echo 'artifact=TeplayaCompany-v6.3.8-parent-FRESH-INSTALL' >> "$GITHUB_OUTPUT"
-            echo 'FRESH PARENT INSTALLATION. Keep this app installed. Future builds use the persistent parent signing key and must be installed over this app, not after uninstalling it.' > delivery/COMPATIBILITY.txt
+          previous_file=$(find previous-apk -name 'TeplayaCompany-v6.3.8-parent.apk' -print -quit)
+          test -n "$previous_file"
+          previous=$($signer verify --print-certs "$previous_file" | grep 'certificate SHA-256 digest')
+          echo "Parent:  $previous"
+          echo "Update:  $current"
+          if [ "$current" != "$previous" ]; then
+            echo 'SIGNATURE_MISMATCH: refusing to publish an update that cannot install over the parent app.'
+            exit 1
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.3.8-parent.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.3.8-parent-unsigned.apk
+          echo 'artifact=TeplayaCompany-v6.3.9-parent-UPDATE-COMPATIBLE' >> "$GITHUB_OUTPUT"
+          echo 'UPDATE COMPATIBLE WITH THE INSTALLED 6.3.8 PARENT. Install over the existing app. Do not uninstall the parent app.' > delivery/COMPATIBILITY.txt
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.3.9-parent-update.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.3.9-parent-unsigned.apk
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
