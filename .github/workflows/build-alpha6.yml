@@ -36,7 +36,7 @@ jobs:
         run: |
           grep -q "applicationId 'ru.teplayakompaniya.tk4'" app/build.gradle
           grep -q "versionCode 603002" app/build.gradle
-          grep -q 'AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
+          grep -q 'AKfycbwlyuXQq0152f4Lb6YfmTI8l-shzWegtmWZ_GfM4MuhT_D1sl8dE1Wtuwo2ugFsTo6Hew' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
           if grep -R 'WebView\|Log\.\|System.out.print' app/src/main/java; then exit 1; fi
       - name: Backend and migration contracts
         run: |
