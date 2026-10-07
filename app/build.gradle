@@ -10,8 +10,8 @@ android {
         applicationId 'ru.teplayakompaniya.tk4'
         minSdk 26
         targetSdk 34
-        versionCode 603008
-        versionName '6.3.7-parent'
+        versionCode 603009
+        versionName '6.3.8-parent'
         testInstrumentationRunner 'ru.teplayakompaniya.tk4.Stage1Smoke'
     }
 
