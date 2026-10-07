@@ -12,7 +12,26 @@ public final class Stage1Rules {
         return "OWNER".equals(role(value)) || "ADMIN".equals(role(value));
     }
     public static boolean canSeeCompanyFinance(String value, boolean financeGranted) {
-        return isAdmin(value) || ("PARTNER".equals(role(value)) && financeGranted);
+        String r = role(value);
+        return "OWNER".equals(r) || (("ADMIN".equals(r) || "PARTNER".equals(r)) && financeGranted);
+    }
+    public static boolean canCreateObject(String value) {
+        String r = role(value);
+        return "OWNER".equals(r) || "ADMIN".equals(r) || "PARTNER".equals(r) || "ENGINEER".equals(r) || "MANAGER".equals(r);
+    }
+    public static boolean canCreateSurvey(String value) {
+        return canCreateObject(value);
+    }
+    public static boolean canManageWorkforce(String value) {
+        String r = role(value);
+        return "OWNER".equals(r) || "ADMIN".equals(r) || "PARTNER".equals(r) || "ENGINEER".equals(r);
+    }
+    public static boolean canEditTech(String value) {
+        return canManageWorkforce(value);
+    }
+    public static boolean canUploadMedia(String value) {
+        String r = role(value);
+        return "OWNER".equals(r) || "ADMIN".equals(r) || "PARTNER".equals(r) || "ENGINEER".equals(r) || "INSTALLER".equals(r);
     }
     public static boolean needsScopedData(String value) {
         return !isAdmin(value) && !"PARTNER".equals(role(value));
