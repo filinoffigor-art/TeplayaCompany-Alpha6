@@ -88,6 +88,9 @@ public class MainActivity extends Activity {
     private final List<MediaItem> liveMedia = new ArrayList<>();
     private final List<CalendarItem> liveCalendar = new ArrayList<>();
     private String pendingMediaObjectId = null;
+    private String pendingMediaStage = "Общий этап";
+    private String pendingMediaType = "ПРОЦЕСС";
+    private String pendingMediaComment = "";
     private static final int REQ_PICK_MEDIA = 4107;
     private static final int REQ_AVATAR = 4108;
     private String apiRole = "";
@@ -604,7 +607,9 @@ public class MainActivity extends Activity {
     }
 
     private void shareTechTask(String objectId){
-        Intent share=new Intent(Intent.ACTION_SEND);share.setType("text/plain");share.putExtra(Intent.EXTRA_SUBJECT,"ТЗ — "+objectId);share.putExtra(Intent.EXTRA_TEXT,techTaskText(objectId));startActivity(Intent.createChooser(share,"Поделиться ТЗ"));
+        ObjectItem object=findObject(objectId);
+        String subject="ТЗ — "+(object==null?"объект":object.address);
+        Intent share=new Intent(Intent.ACTION_SEND);share.setType("text/plain");share.putExtra(Intent.EXTRA_SUBJECT,subject);share.putExtra(Intent.EXTRA_TEXT,techTaskText(objectId));startActivity(Intent.createChooser(share,"Поделиться ТЗ"));
     }
 
     // ---------- installers ----------
@@ -963,6 +968,20 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(5));r.setLayoutParams(p);return r;
     }
 
+    private View accountableBalanceRow(String name,Long balance,View.OnClickListener click){
+        LinearLayout r=v();r.setPadding(dp(12),dp(10),dp(12),dp(10));r.setBackground(round(WHITE,13));
+        LinearLayout top=h();top.setGravity(Gravity.CENTER_VERTICAL);top.addView(tv(name,12,INK,Typeface.BOLD),new LinearLayout.LayoutParams(0,-2,1));
+        String value=balance==null?"Не заполнено":(balance>0?"+":"")+money(balance);
+        int tint=balance==null?MUTED:balance<0?RED:balance>0?GREEN:MUTED;
+        TextView amount=tv(value,13,tint,Typeface.BOLD);amount.setGravity(Gravity.RIGHT);top.addView(amount,new LinearLayout.LayoutParams(0,-2,1));r.addView(top);
+        if(balance!=null){
+            String meaning=balance<0?"Вложено собственных средств: "+money(-balance):balance>0?"Остаток средств компании":"Подотчёт закрыт";
+            r.addView(tv(meaning,10,tint,Typeface.NORMAL));
+        }
+        if(click!=null)r.setOnClickListener(click);
+        LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(6));r.setLayoutParams(p);return r;
+    }
+
     private View metricTiny(String value,String label){
         LinearLayout b=v();b.setPadding(dp(4),dp(5),dp(4),dp(5));b.addView(tv(value,11,INK,Typeface.BOLD));b.addView(tv(label,8,MUTED,Typeface.NORMAL));return b;
     }
@@ -1140,20 +1159,39 @@ public class MainActivity extends Activity {
     private void showPhotoReports(String objectId){
         ObjectItem o=findObject(objectId);if(o==null){navigate("objects");return;}
         beginScreen(true);appBar("Фотоотчёты",o.address);
+        content.addView(tv("Каждое фото привязывается к этапу и типу: ДО, ПРОЦЕСС или ПОСЛЕ.",11,MUTED,Typeface.NORMAL));
         sectionTitle("Лента объекта","Google Drive",null);
         int shown=0;
         for(MediaItem m:liveMedia){
             if(!objectId.equals(m.objectId))continue;
             LinearLayout c=h();c.setPadding(dp(10),dp(10),dp(10),dp(10));c.setBackground(round(softBg(),14));
             TextView ph=pillText("▧",26,BLUE,light(BLUE));ph.setGravity(Gravity.CENTER);c.addView(ph,new LinearLayout.LayoutParams(dp(66),dp(66)));
-            LinearLayout t=v();t.setPadding(dp(10),0,0,0);t.addView(tv(m.stage.isEmpty()?m.type:m.stage,11,BLUE,Typeface.BOLD));
-            t.addView(tv(m.comment.isEmpty()?"Фото объекта":m.comment,11,INK,Typeface.NORMAL));t.addView(tv(m.date,9,MUTED,Typeface.NORMAL));
+            LinearLayout t=v();t.setPadding(dp(10),0,0,0);
+            String stage=m.stage==null||m.stage.isEmpty()?"Общий этап":m.stage;
+            t.addView(tv(stage+" · "+(m.type==null||m.type.isEmpty()?"Фото":m.type),11,BLUE,Typeface.BOLD));
+            t.addView(tv(m.comment.isEmpty()?"Фото объекта":m.comment,11,INK,Typeface.NORMAL));t.addView(tv(humanDate(m.date),9,MUTED,Typeface.NORMAL));
             c.addView(t,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
             c.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(m.url)));}catch(Exception e){toast("Не удалось открыть файл");}});
             LinearLayout.LayoutParams p=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);p.setMargins(0,0,0,dp(7));content.addView(c,p);shown++;
         }
-        if(shown==0)content.addView(emptyState("Фотоотчётов пока нет","Монтажники или инженер могут добавить фотографии к объекту."));
-        Button add=primaryOutline("+ Добавить фото");add.setOnClickListener(v->pickMedia(objectId));content.addView(add);
+        if(shown==0)content.addView(emptyState("Фотоотчётов пока нет","Добавьте фото ДО, ПРОЦЕСС и ПОСЛЕ для каждого этапа."));
+        Button add=primaryOutline("+ Добавить фото по этапу");add.setOnClickListener(v->showMediaMetaDialog(objectId,null,null));content.addView(add);
+    }
+
+    private void showMediaMetaDialog(String objectId,String preferredStage,String preferredDate){
+        LinkedHashSet<String> set=new LinkedHashSet<>();JSONArray days=snapshot.optJSONArray("dayPlans");
+        if(days!=null)for(int i=0;i<days.length();i++){JSONObject d=days.optJSONObject(i);if(d!=null&&objectId.equals(d.optString("Object_ID"))&&!d.optString("Задача").isEmpty())set.add(d.optString("Задача"));}
+        if(set.isEmpty())set.add("Общий этап");
+        String[] stages=set.toArray(new String[0]);String[] types={"ДО","ПРОЦЕСС","ПОСЛЕ"};
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
+        Spinner stage=new Spinner(this);stage.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,stages));
+        if(preferredStage!=null){int pos=Arrays.asList(stages).indexOf(preferredStage);if(pos>=0)stage.setSelection(pos);}
+        form.addView(labelWrap("Этап",stage));
+        Spinner type=new Spinner(this);type.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,types));form.addView(labelWrap("Тип фото",type));
+        EditText comment=edit("Комментарий к фото");if(preferredDate!=null&&!preferredDate.isEmpty())comment.setText("Работы за "+humanDate(preferredDate));form.addView(labelWrap("Комментарий",comment));
+        new AlertDialog.Builder(this).setTitle("Фото по этапу").setView(form).setPositiveButton("Выбрать фото",(d,w)->{
+            pendingMediaStage=String.valueOf(stage.getSelectedItem());pendingMediaType=String.valueOf(type.getSelectedItem());pendingMediaComment=comment.getText().toString().trim();pickMedia(objectId);
+        }).setNegativeButton("Отмена",null).show();
     }
 
     private void pickMedia(String objectId){
@@ -1174,13 +1212,13 @@ public class MainActivity extends Activity {
         }
         if(requestCode!=REQ_PICK_MEDIA||resultCode!=RESULT_OK||data==null||data.getData()==null||pendingMediaObjectId==null)return;
         if(api==null||!api.hasToken()){showPairingDialog();return;}
-        Uri uri=data.getData();final String objectId=pendingMediaObjectId;pendingMediaObjectId=null;
+        Uri uri=data.getData();final String objectId=pendingMediaObjectId;final String stage=pendingMediaStage;final String mediaType=pendingMediaType;final String mediaComment=pendingMediaComment;pendingMediaObjectId=null;pendingMediaStage="Общий этап";pendingMediaType="ПРОЦЕСС";pendingMediaComment="";
         new Thread(()->{
         try(InputStream is=getContentResolver().openInputStream(uri);ByteArrayOutputStream bos=new ByteArrayOutputStream()){
             byte[] buf=new byte[8192];int n;while((n=is.read(buf))>0){bos.write(buf,0,n);if(bos.size()>6*1024*1024){runOnUiThread(()->toast("Фото больше 6 МБ"));return;}}
             String b64=Base64.encodeToString(bos.toByteArray(),Base64.NO_WRAP);
             JSONObject b=new JSONObject();b.put("objectId",objectId);b.put("base64",b64);b.put("mimeType",getContentResolver().getType(uri));
-            b.put("fileName","TK-"+objectId+"-"+System.currentTimeMillis()+".jpg");b.put("mediaType","Фото");b.put("stage","ПРОЦЕСС");b.put("comment","Загружено из приложения");
+            b.put("fileName","TK-"+objectId+"-"+System.currentTimeMillis()+".jpg");b.put("mediaType",mediaType);b.put("stage",stage);b.put("comment",mediaComment.isEmpty()?"Фото этапа":mediaComment);
             api.mutate("uploadMedia",b,new ApiClient.Callback(){
                 public void onSuccess(JSONObject json){toast("Фото загружено в Google Drive");syncNow(false);}
                 public void onError(String error){showApiError(error);}
@@ -1266,12 +1304,37 @@ public class MainActivity extends Activity {
         beginScreen(true);appBar("Подотчёт",who.equals("all")?"Все ответственные":who);
         JSONObject balances=hasData("accountable")?snapshot.optJSONObject("accountable"):null;
         if(balances==null){content.addView(emptyState("Не заполнено","API не передаёт остатки подотчёта"));return;}
-        if(who.equals("all")){java.util.Iterator<String> names=balances.keys();while(names.hasNext()){String name=names.next();JSONObject person=balances.optJSONObject(name);String value=person!=null&&person.opt("balance") instanceof Number?money(person.optLong("balance")):"Не заполнено";content.addView(clickableInfoRow(name,value,v->navigate("accountable:"+name)));}return;}
-        JSONObject person=balances.optJSONObject(who);content.addView(infoRow("Остаток",person!=null&&person.opt("balance") instanceof Number?money(person.optLong("balance")):"Не заполнено"));
-        content.addView(tv("История ниже ограничена последними операциями API.",11,MUTED,Typeface.NORMAL));for(MoneyTx tx:txs)if(who.equals(tx.responsible))content.addView(clickableInfoRow(tx.date+" · "+tx.title,money(tx.amount),v->showOperation(tx)));
+        if(who.equals("all")){
+            java.util.Iterator<String> names=balances.keys();
+            while(names.hasNext()){
+                String name=names.next();JSONObject person=balances.optJSONObject(name);
+                Long balance=person!=null&&person.opt("balance") instanceof Number?person.optLong("balance"):null;
+                content.addView(accountableBalanceRow(name,balance,v->navigate("accountable:"+name)));
+            }
+            return;
+        }
+        JSONObject person=balances.optJSONObject(who);
+        Long balance=person!=null&&person.opt("balance") instanceof Number?person.optLong("balance"):null;
+        content.addView(accountableBalanceRow("Текущий остаток",balance,null));
+        if(balance!=null&&balance<0)content.addView(tv("Красный минус означает: компания уже использовала личные деньги сотрудника и должна возместить эту сумму.",11,RED,Typeface.NORMAL));
+        else if(balance!=null&&balance>0)content.addView(tv("Зелёный плюс означает: у сотрудника остаются средства компании.",11,GREEN,Typeface.NORMAL));
+        sectionTitle("Движение средств",null,null);
+        content.addView(tv("Приходы отображаются зелёным, расходы — красным. История ограничена последними операциями API.",11,MUTED,Typeface.NORMAL));
+        for(MoneyTx tx:txs)if(who.equals(tx.responsible)){
+            int tint=tx.type.equals("EXPENSE")?RED:tx.type.equals("INCOME")?GREEN:BLUE;
+            LinearLayout row=h();row.setPadding(dp(10),dp(9),dp(10),dp(9));row.setBackground(round(WHITE,13));
+            row.addView(tv(tx.date+" · "+tx.title,11,INK,Typeface.NORMAL),new LinearLayout.LayoutParams(0,-2,1));
+            TextView amount=tv((tx.type.equals("INCOME")?"+":tx.type.equals("EXPENSE")?"−":"")+money(Math.abs(tx.amount)),11,tint,Typeface.BOLD);amount.setGravity(Gravity.RIGHT);row.addView(amount,new LinearLayout.LayoutParams(0,-2,1));
+            row.setOnClickListener(v->showOperation(tx));content.addView(row);
+        }
         if(person!=null){
-            for(String[] row:new String[][]{{"Получено от компании","receivedFromCompany"},{"Потрачено","expenses"},{"Передано другому подотчётному лицу","outgoingTransfers"},{"Вложено собственных средств — за всё время","personalInvested"},{"Возмещено собственных средств","personalReimbursed"}})content.addView(infoRow(row[0],person.opt(row[1]) instanceof Number?money(person.optLong(row[1])):"Не заполнено"));
-            if(person.opt("balance") instanceof Number){long outstanding=Stage1Ledger.personalFundsOutstanding(person.optLong("balance"));content.addView(infoRow("Собственных средств вложено — не возмещено",money(outstanding)));if(outstanding>0)content.addView(tv("Отрицательный остаток: расходы компании оплачены собственными средствами. Это не ошибка данных.",12,MUTED,Typeface.NORMAL));}
+            content.addView(infoRow("Получено от компании",person.opt("receivedFromCompany") instanceof Number?money(person.optLong("receivedFromCompany")):"Не заполнено"));
+            content.addView(infoRow("Потрачено",person.opt("expenses") instanceof Number?money(person.optLong("expenses")):"Не заполнено"));
+            content.addView(infoRow("Передано другому подотчётному лицу",person.opt("outgoingTransfers") instanceof Number?money(person.optLong("outgoingTransfers")):"Не заполнено"));
+            if(person.opt("personalInvested") instanceof Number)content.addView(infoRow("Личных средств внесено за всё время",money(person.optLong("personalInvested"))));
+            if(person.opt("personalReimbursed") instanceof Number)content.addView(infoRow("Личных средств уже возмещено",money(person.optLong("personalReimbursed"))));
+            long outstanding=balance==null?0:Stage1Ledger.personalFundsOutstanding(balance);
+            if(outstanding>0)content.addView(accountableBalanceRow("Собственные средства к возмещению",-outstanding,null));
             Button reimbursement=primaryOutline("Возместить личные средства");reimbursement.setOnClickListener(v->workforceUi().reimburse(who,person));content.addView(reimbursement);
         }
     }
@@ -1701,31 +1764,122 @@ public class MainActivity extends Activity {
     static final class EngineerItem{String id,name;int activeObjects,planned,overdue,noReport;EngineerItem(String id,String name,int a,int p,int o,int n){this.id=id;this.name=name;this.activeObjects=a;this.planned=p;this.overdue=o;this.noReport=n;}}
     static final class ManagerItem{String id,name;int leads,surveys,contracts,installations;ManagerItem(String id,String name,int l,int s,int c,int i){this.id=id;this.name=name;this.leads=l;this.surveys=s;this.contracts=c;this.installations=i;}}
 
+    private String humanDate(String raw){
+        LocalDate d=readDate(raw);return d==null?(raw==null||raw.isEmpty()?"Не заполнено":raw):d.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+    }
+    private String qty(double value){
+        NumberFormat f=NumberFormat.getNumberInstance(new Locale("ru","RU"));f.setMaximumFractionDigits(2);f.setMinimumFractionDigits(0);return f.format(value);
+    }
+    private int mediaCount(String objectId,String stage){
+        int count=0;for(MediaItem m:liveMedia)if(objectId.equals(m.objectId)&&(stage==null||stage.equals(m.stage)))count++;return count;
+    }
     private String techTaskText(String objectId){
         ObjectItem object=findObject(objectId);StringBuilder text=new StringBuilder("ТЁПЛАЯ КОМПАНИЯ — ТЕХНИЧЕСКОЕ ЗАДАНИЕ\n");
-        text.append("Object_ID: ").append(objectId).append("\n");if(object!=null)text.append(object.address).append("\nДаты: ").append(object.planStart).append(" — ").append(object.planEnd).append("\n");
+        if(object!=null){
+            text.append("Объект: ").append(object.address).append("\n");
+            text.append("Срок работ: ").append(humanDate(object.planStart)).append(" — ").append(humanDate(object.planEnd)).append("\n");
+            if(object.client!=null&&!object.client.isEmpty())text.append("Клиент: ").append(object.client).append("\n");
+        }
         JSONArray tasks=snapshot.optJSONArray("techTasks");boolean saved=false;
-        if(tasks!=null)for(int index=0;index<tasks.length();index++){JSONObject task=tasks.optJSONObject(index);if(task!=null&&objectId.equals(task.optString("Object_ID"))){saved=true;text.append("TechTask_ID: ").append(task.optString("TechTask_ID")).append("\n").append(task.optString("Комментарий")).append("\n");}}
-        if(!saved)text.append("ТЗ не сохранено на сервере. Данные формы в этот документ не включены.\n");
-        JSONArray days=snapshot.optJSONArray("dayPlans");if(days!=null)for(int index=0;index<days.length();index++){JSONObject day=days.optJSONObject(index);if(day!=null&&objectId.equals(day.optString("Object_ID")))text.append(day.optString("Дата")).append(" · ").append(day.optString("Задача")).append(" · План: ").append(day.optString("План объём")).append("\n");}
-        TechTask task=techTasks.get(objectId);if(task!=null){text.append("Монтажники:\n");for(String name:task.installers.keySet())text.append(name).append("\n");}
-        text.append("График платежей:\n");boolean payments=false;for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId)){payments=true;text.append(payment.id).append(" · ").append(payment.date).append(" · ").append(payment.stageName).append(" · ").append(money(payment.planned)).append("\n");}if(!payments)text.append("Не заполнено\n");
+        if(tasks!=null)for(int index=0;index<tasks.length();index++){
+            JSONObject task=tasks.optJSONObject(index);if(task!=null&&objectId.equals(task.optString("Object_ID"))){
+                saved=true;String status=task.optString("Статус ТЗ",task.optString("Статус"));
+                if(!status.isEmpty())text.append("Статус: ").append(status).append("\n");
+                String comment=task.optString("Комментарий");if(!comment.isEmpty())text.append("Общий комментарий: ").append(comment).append("\n");
+            }
+        }
+        if(!saved)text.append("Статус: данные ТЗ ещё не подтверждены сервером.\n");
+
+        LinkedHashMap<String,List<JSONObject>> groups=new LinkedHashMap<>();
+        JSONArray days=snapshot.optJSONArray("dayPlans");
+        if(days!=null)for(int index=0;index<days.length();index++){JSONObject day=days.optJSONObject(index);if(day!=null&&objectId.equals(day.optString("Object_ID"))){String stage=day.optString("Задача","Этап");groups.computeIfAbsent(stage,k->new ArrayList<>()).add(day);}}
+        int stageNo=0;
+        for(Map.Entry<String,List<JSONObject>> entry:groups.entrySet()){
+            stageNo++;List<JSONObject> rows=entry.getValue();String from="",to="",unit="",description="",attention="";double plan=0,fact=0;
+            for(JSONObject row:rows){String date=row.optString("Дата");if(from.isEmpty()||date.compareTo(from)<0)from=date;if(to.isEmpty()||date.compareTo(to)>0)to=date;if(unit.isEmpty())unit=row.optString("Ед. изм.");if(description.isEmpty())description=row.optString("Описание работ");if(attention.isEmpty())attention=row.optString("На что обратить внимание");plan+=row.optDouble("План объём",0);fact+=row.optDouble("Факт объём",0);}
+            text.append("\nЭТАП ").append(stageNo).append(". ").append(entry.getKey()).append("\n");
+            text.append("Срок: ").append(humanDate(from)).append(" — ").append(humanDate(to)).append("\n");
+            text.append("Общий план: ").append(qty(plan)).append(" ").append(unit).append("\n");
+            text.append("Выполнено: ").append(qty(fact)).append(" ").append(unit).append(" из ").append(qty(plan)).append(" ").append(unit).append("\n");
+            if(!description.isEmpty())text.append("Описание работ: ").append(description).append("\n");
+            if(!attention.isEmpty())text.append("На что обратить внимание: ").append(attention).append("\n");
+            text.append("Фото по этапу: ").append(mediaCount(objectId,entry.getKey())).append("\n");
+            text.append("Работа по дням:\n");
+            for(JSONObject row:rows)text.append("• ").append(humanDate(row.optString("Дата"))).append(" — план ").append(qty(row.optDouble("План объём",0))).append(" ").append(row.optString("Ед. изм.")).append(", факт ").append(qty(row.optDouble("Факт объём",0))).append(" ").append(row.optString("Ед. изм.")).append("\n");
+        }
+        TechTask task=techTasks.get(objectId);if(task!=null&&!task.installers.isEmpty()){text.append("\nМонтажники и согласованные суммы:\n");for(Map.Entry<String,Long> entry:task.installers.entrySet())text.append("• ").append(entry.getKey()).append(" — ").append(money(entry.getValue())).append("\n");}
+        text.append("\nГрафик платежей:\n");boolean payments=false;for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId)){payments=true;text.append("• ").append(humanDate(payment.date)).append(" — ").append(payment.stageName).append(" — ").append(money(payment.planned)).append("\n");}if(!payments)text.append("Не заполнено\n");
         return text.toString();
     }
     private Stage1WorkforceUi workforceUi(){return new Stage1WorkforceUi(this,snapshot,api,canFinance(),Stage1Rules.isAdmin(apiRole),()->syncNow(false));}
     private String displayField(JSONObject row,String key){return row.has(key)&&!row.isNull(key)&&!row.optString(key).isEmpty()?row.optString(key):"Не заполнено";}
     private boolean hasPaymentRows(String objectId){for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId))return true;return false;}
     private void showSavedTechTask(String objectId){
-        ObjectItem object=findObject(objectId);beginScreen(true);appBar("Техническое задание",object==null?objectId:object.address);
-        content.addView(tv("Существующее ТЗ доступно для просмотра. Изменение через старый API может пересоздать ID графика оплат; редактирование включится после безопасного серверного контракта.",12,MUTED,Typeface.NORMAL));
-        JSONArray tasks=snapshot.optJSONArray("techTasks");if(tasks!=null)for(int n=0;n<tasks.length();n++){JSONObject task=tasks.optJSONObject(n);if(task!=null&&objectId.equals(task.optString("Object_ID"))){content.addView(infoRow("TechTask_ID",task.optString("TechTask_ID")));content.addView(infoRow("Статус",task.optString("Статус")));}}
-        sectionTitle("План по дням",null,null);JSONArray days=snapshot.optJSONArray("dayPlans");
-        if(days!=null)for(int n=0;n<days.length();n++){JSONObject day=days.optJSONObject(n);if(day!=null&&objectId.equals(day.optString("Object_ID")))content.addView(infoRow(day.optString("Дата")+" · "+day.optString("Задача"),day.optString("План объём")+" / "+day.optString("Факт объём")));}
-        TechTask task=techTasks.get(objectId);if(task!=null){sectionTitle("Согласованные суммы",null,null);for(Map.Entry<String,Long> entry:task.installers.entrySet())content.addView(infoRow(entry.getKey(),money(entry.getValue())));}
-        content.addView(clickableInfoRow("Ежедневные фото","Открыть ›",v->navigate("photos:"+objectId)));
-        content.addView(clickableInfoRow("График оплат","Открыть ›",v->navigate("payments:"+objectId)));
+        ObjectItem object=findObject(objectId);beginScreen(true);appBar("Техническое задание",object==null?"Объект":object.address);
+        if(object!=null){
+            content.addView(infoRow("Объект",object.address));
+            content.addView(infoRow("Общий срок",humanDate(object.planStart)+" — "+humanDate(object.planEnd)));
+        }
+        JSONArray tasks=snapshot.optJSONArray("techTasks");
+        if(tasks!=null)for(int n=0;n<tasks.length();n++){JSONObject task=tasks.optJSONObject(n);if(task!=null&&objectId.equals(task.optString("Object_ID"))){
+            String status=task.optString("Статус ТЗ",task.optString("Статус"));if(!status.isEmpty())content.addView(infoRow("Статус ТЗ",status));
+            String comment=task.optString("Комментарий");if(!comment.isEmpty())content.addView(tv("Общий комментарий: "+comment,12,INK,Typeface.NORMAL));
+        }}
+        sectionTitle("Этапы работ","План / факт по каждому дню",null);
+        JSONArray days=snapshot.optJSONArray("dayPlans");LinkedHashMap<String,List<JSONObject>> groups=new LinkedHashMap<>();
+        if(days!=null)for(int n=0;n<days.length();n++){JSONObject day=days.optJSONObject(n);if(day!=null&&objectId.equals(day.optString("Object_ID"))){String stage=day.optString("Задача","Этап");groups.computeIfAbsent(stage,k->new ArrayList<>()).add(day);}}
+        if(groups.isEmpty())content.addView(emptyState("План по этапам не заполнен","Добавьте этапы и ежедневные объёмы."));
+        for(Map.Entry<String,List<JSONObject>> entry:groups.entrySet()){
+            List<JSONObject> rows=entry.getValue();String from="",to="",unit="",description="",attentionText="";double plan=0,fact=0;
+            for(JSONObject row:rows){String date=row.optString("Дата");if(from.isEmpty()||date.compareTo(from)<0)from=date;if(to.isEmpty()||date.compareTo(to)>0)to=date;if(unit.isEmpty())unit=row.optString("Ед. изм.");if(description.isEmpty())description=row.optString("Описание работ");if(attentionText.isEmpty())attentionText=row.optString("На что обратить внимание");plan+=row.optDouble("План объём",0);fact+=row.optDouble("Факт объём",0);}
+            LinearLayout card=v();card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(round(softBg(),16));
+            card.addView(tv(entry.getKey(),14,INK,Typeface.BOLD));
+            card.addView(tv("Срок этапа: "+humanDate(from)+" — "+humanDate(to),10,MUTED,Typeface.NORMAL));
+            card.addView(tv("Выполнено: "+qty(fact)+" из "+qty(plan)+" "+unit,12,fact>=plan&&plan>0?GREEN:BLUE,Typeface.BOLD));
+            if(!description.isEmpty())card.addView(tv("Описание работ: "+description,11,INK,Typeface.NORMAL));
+            if(!attentionText.isEmpty()){TextView attentionView=tv("На что обратить внимание: "+attentionText,11,ORANGE,Typeface.BOLD);attentionView.setPadding(0,dp(6),0,dp(6));card.addView(attentionView);}
+            card.addView(tv("Фото по этапу: "+mediaCount(objectId,entry.getKey()),10,MUTED,Typeface.NORMAL));
+            for(JSONObject day:rows){
+                String unitDay=day.optString("Ед. изм.");double p=day.optDouble("План объём",0),a=day.optDouble("Факт объём",0);
+                String left=humanDate(day.optString("Дата"))+" · план "+qty(p)+" "+unitDay;
+                String right="Факт "+qty(a)+" "+unitDay;
+                View row=clickableInfoRow(left,right,v->dailyProgressDialog(day));
+                card.addView(row);
+            }
+            Button photo=primaryOutline("Добавить фото по этапу");photo.setOnClickListener(v->showMediaMetaDialog(objectId,entry.getKey(),null));card.addView(photo);
+            LinearLayout.LayoutParams cp=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);cp.setMargins(0,0,0,dp(10));content.addView(card,cp);
+        }
+        TechTask task=techTasks.get(objectId);if(task!=null&&!task.installers.isEmpty()){sectionTitle("Монтажники и согласованные суммы",null,null);for(Map.Entry<String,Long> entry:task.installers.entrySet())content.addView(infoRow(entry.getKey(),money(entry.getValue())));}
+        sectionTitle("График оплат",null,null);boolean hasPayments=false;for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId)){hasPayments=true;content.addView(infoRow(humanDate(payment.date)+" · "+payment.stageName,money(payment.planned)));}if(!hasPayments)content.addView(infoRow("Платежи","Не заполнено"));
+        content.addView(clickableInfoRow("Все фотоотчёты","Открыть ›",v->navigate("photos:"+objectId)));
         Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->shareTechTask(objectId));content.addView(share);
-        Button pdf=primaryOutline("PDF / Сохранить");pdf.setOnClickListener(v->Stage1Pdf.export(this,"ТЗ-"+objectId,techTaskText(objectId)));content.addView(pdf);
+        Button pdf=primaryOutline("PDF / Сохранить");pdf.setOnClickListener(v->Stage1Pdf.export(this,"ТЗ — "+(object==null?"объект":object.address),techTaskText(objectId)));content.addView(pdf);
+    }
+
+    private void dailyProgressDialog(JSONObject day){
+        String dayPlanId=day.optString("DayPlan_ID",day.optString("ID"));
+        if(dayPlanId.isEmpty()){unavailable("Ежедневный объём","Сервер не передал ссылку на запись дня. Обновите данные.");return;}
+        String role=apiRole==null?"":apiRole.toUpperCase(Locale.ROOT);
+        if(!Arrays.asList("OWNER","ADMIN","PARTNER","ENGINEER","INSTALLER").contains(role)){unavailable("Ежедневный объём","У вашей роли нет права менять фактический объём.");return;}
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
+        form.addView(tv(day.optString("Задача"),14,INK,Typeface.BOLD));
+        form.addView(tv(humanDate(day.optString("Дата"))+" · План: "+qty(day.optDouble("План объём",0))+" "+day.optString("Ед. изм."),11,MUTED,Typeface.NORMAL));
+        EditText actual=edit("Фактический объём");actual.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);if(day.opt("Факт объём") instanceof Number)actual.setText(qty(day.optDouble("Факт объём")));form.addView(labelWrap("Выполнено за день",actual));
+        EditText report=edit("Комментарий за день");report.setText(day.optString("Отчёт дня"));form.addView(labelWrap("Комментарий",report));
+        CheckBox complete=new CheckBox(this);complete.setText("Работа за этот день завершена");complete.setChecked("Выполнено".equals(day.optString("Статус")));form.addView(complete);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Ежедневный объём работ").setView(form)
+                .setPositiveButton("Сохранить",null)
+                .setNeutralButton("Добавить фото",(d,w)->showMediaMetaDialog(day.optString("Object_ID"),day.optString("Задача"),day.optString("Дата")))
+                .setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            try{
+                double value=Double.parseDouble(actual.getText().toString().trim().replace(",","."));
+                if(!Double.isFinite(value)||value<0)throw new IllegalArgumentException();
+                JSONObject b=new JSONObject();b.put("dayPlanId",dayPlanId);b.put("objectId",day.optString("Object_ID"));b.put("actualQty",value);b.put("comment",report.getText().toString().trim());b.put("status",complete.isChecked()?"Выполнено":"В работе");b.put("expectedRevision",day.optInt("Revision",1));
+                api.mutate("updateDailyProgress",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){dialog.dismiss();toast("Ежедневный объём сохранён");syncNow(false);}public void onError(String error){showApiError(error);}});
+            }catch(Exception e){toast("Укажите корректный фактический объём");}
+        }));
+        dialog.show();
     }
 
     static final class TechTask{String objectId;Map<String,Long> installers=new LinkedHashMap<>();String day1a="",day1b="",day2a="",day2b="",note="";long pay1=0,pay2=0,pay3=0;boolean saved=false;TechTask(String id){objectId=id;}}
