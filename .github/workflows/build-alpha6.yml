@@ -84,7 +84,7 @@ jobs:
           api-level: 34
           arch: x86_64
           disable-animations: true
-          script: bash scripts/stage1-emulator.sh
+          script: TK4_FRESH_PARENT=1 bash scripts/stage1-emulator.sh
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
