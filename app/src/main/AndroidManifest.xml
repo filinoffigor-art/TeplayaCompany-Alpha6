@@ -4,9 +4,9 @@
 
     <application
         android:allowBackup="true"
-        android:label="Тёплая Компания 4.0"
-        android:icon="@drawable/company_logo"
-        android:roundIcon="@drawable/company_logo"
+        android:label="ТК 4.0 • ОСНОВНОЕ"
+        android:icon="@drawable/app_icon_parent"
+        android:roundIcon="@drawable/app_icon_parent"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
