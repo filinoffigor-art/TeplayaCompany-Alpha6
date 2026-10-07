@@ -137,11 +137,13 @@ public final class ApiClient {
             try {
                 URL u = new URL(API_URL);
                 c = (HttpURLConnection) u.openConnection();
-                c.setConnectTimeout(20000);
-                c.setReadTimeout(35000);
+                c.setConnectTimeout(30000);
+                c.setReadTimeout(120000);
                 c.setRequestMethod("POST");
+                c.setInstanceFollowRedirects(true);
                 c.setDoOutput(true);
                 c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                c.setRequestProperty("Accept", "application/json");
                 byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
                 // Buffered mode allows the platform to follow the Apps Script redirect.
                 try(OutputStream os = c.getOutputStream()) { os.write(bytes); }
@@ -157,8 +159,12 @@ public final class ApiClient {
                 } else {
                     postSuccess(cb, json);
                 }
+            } catch (java.net.SocketTimeoutException e) {
+                postError(cb, "SERVER_TIMEOUT");
+            } catch (org.json.JSONException e) {
+                postError(cb, "SERVER_RESPONSE_INVALID");
             } catch (Exception e) {
-                postError(cb, "Нет связи с сервером. Проверьте интернет и повторите запрос.");
+                postError(cb, "NETWORK_ERROR");
             } finally {
                 if (c != null) c.disconnect();
                 synchronized (pending) { pending.remove(pendingKey); }
