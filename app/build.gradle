@@ -10,14 +10,24 @@ android {
         applicationId 'ru.teplayakompaniya.tk4'
         minSdk 26
         targetSdk 34
-        versionCode 604001
-        versionName '6.4.1-parent'
+        versionCode 605000
+        versionName '6.5.0-parent'
         testInstrumentationRunner 'ru.teplayakompaniya.tk4.Stage1Smoke'
+    }
+
+    signingConfigs {
+        parent {
+            storeFile file('tk4-parent.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
     }
 
     buildTypes {
         debug {
             debuggable true
+            signingConfig signingConfigs.parent
         }
         release {
             minifyEnabled false
