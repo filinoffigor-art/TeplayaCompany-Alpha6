@@ -1663,6 +1663,9 @@ public class MainActivity extends Activity {
         else if("CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE".equals(error))message="Существующую строку ТЗ нельзя удалить молча. Оставьте её в ТЗ; отдельное удаление будет подтверждаться отдельно.";
         else if("PAYMENT_PLAN_BELOW_RECEIVED".equals(error))message="Плановый платёж нельзя уменьшить ниже уже полученной по этому этапу суммы.";
         else if("TECH_TASK_EDIT_REASON_REQUIRED".equals(error))message="Укажите причину изменения технического задания.";
+        else if("SERVER_TIMEOUT".equals(error))message="Сервер Google обрабатывает запрос слишком долго. Повторите через несколько секунд.";
+        else if("SERVER_RESPONSE_INVALID".equals(error))message="Сервер Google вернул некорректный ответ. Это не проблема интернета.";
+        else if("NETWORK_ERROR".equals(error))message="Не удалось завершить запрос к серверу. Интернет может быть доступен, но соединение с Apps Script было прерванo.";
         new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(message).setPositiveButton("Закрыть",null).show();
     }
     private void setBusy(Button b,boolean busy){b.setEnabled(!busy);b.setText(busy?"Сохраняю…":b.getText().toString().replace("Сохраняю…","Сохранить"));}
