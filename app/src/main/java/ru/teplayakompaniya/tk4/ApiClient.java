@@ -61,12 +61,12 @@ public final class ApiClient {
         prefs.edit().remove("apiToken").remove("apiUserId").remove("apiUserName").remove("apiRole").apply();
     }
 
-    public void pair(String userId, String pairingCode, Callback cb) {
+    public void pair(String userName, String pairingCode, Callback cb) {
         try {
             JSONObject b = new JSONObject();
             b.put("action", "pair");
             b.put("requestId", requestId());
-            b.put("userId", userId);
+            b.put("userName", userName);
             b.put("pairingCode", pairingCode);
             b.put("deviceId", getDeviceId());
             postRaw(b, new Callback() {
