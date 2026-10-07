@@ -2,7 +2,7 @@ name: Build TK4 Stage 1
 on:
   workflow_dispatch:
   push:
-    branches: [ main, codex/stage1 ]
+    branches: [ main, codex/stage1, codex/stage1-continue ]
     paths: [ 'app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/build-alpha6.yml', 'scripts/**', 'backend/**' ]
 permissions:
   contents: read
@@ -36,14 +36,14 @@ jobs:
         run: |
           grep -q "applicationId 'ru.teplayakompaniya.tk4'" app/build.gradle
           grep -q "versionCode 603002" app/build.gradle
-          grep -q 'AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
+          grep -q 'AKfycbwlyuXQq0152f4Lb6YfmTI8l-shzWegtmWZ_GfM4MuhT_D1sl8dE1Wtuwo2ugFsTo6Hew' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
           if grep -R 'WebView\|Log\.\|System.out.print' app/src/main/java; then exit 1; fi
       - name: Backend and migration contracts
         run: |
           node scripts/operational-api-test.cjs
           python3 scripts/test-normalize-september.py
       - name: Compile, unit tests, lint and APKs
-        run: ./gradle-8.11.1/bin/gradle testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease --no-daemon --stacktrace
+        run: ./gradle-8.11.1/bin/gradle testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleQa assembleRelease --no-daemon --stacktrace
       - name: Build baseline with the same CI key for data migration test
         run: |
           mkdir baseline
@@ -72,9 +72,10 @@ jobs:
             echo 'Certificate matches Alpha 6.1; original APK update still requires device validation.' > delivery/COMPATIBILITY.txt
           else
             echo 'artifact=TeplayaCompany-v6.3.1-connected-QA-ONLY' >> "$GITHUB_OUTPUT"
-            echo 'NOT AN UPDATE FOR THE INSTALLED ALPHA. Original signing key is unavailable or does not match. Do not uninstall the current app. Data migration test uses a baseline rebuilt with the same CI key; it does not prove compatibility with the original APK.' > delivery/COMPATIBILITY.txt
+            echo 'NOT AN UPDATE FOR THE INSTALLED ALPHA. Original signing key is unavailable or does not match. Do not uninstall the current app. Install TeplayaCompany-v6.3.1-connected-QA-side-by-side.apk instead; it uses package ru.teplayakompaniya.tk4.qa and can coexist with the installed Alpha. Data migration test uses a baseline rebuilt with the same CI key; it does not prove compatibility with the original APK.' > delivery/COMPATIBILITY.txt
           fi
           cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.3.1-connected.apk
+          cp app/build/outputs/apk/qa/app-qa.apk delivery/TeplayaCompany-v6.3.1-connected-QA-side-by-side.apk
           cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/TeplayaCompany-v6.3.1-connected-unsigned.apk
       - name: Enable KVM
         run: |

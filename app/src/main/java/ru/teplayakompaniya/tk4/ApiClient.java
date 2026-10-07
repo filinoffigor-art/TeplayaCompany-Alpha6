@@ -23,7 +23,7 @@ import java.util.concurrent.Executors;
 
 public final class ApiClient {
     // Replaced with real /exec URL before the final APK build.
-    public static final String API_URL = "https://script.google.com/macros/s/AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn-FhrZv_rnvxw-5FpvCcr6kfKFFeOdmv/exec";
+    public static final String API_URL = "https://script.google.com/macros/s/AKfycbwlyuXQq0152f4Lb6YfmTI8l-shzWegtmWZ_GfM4MuhT_D1sl8dE1Wtuwo2ugFsTo6Hew/exec";
 
     public interface Callback {
         void onSuccess(JSONObject json);
@@ -66,7 +66,7 @@ public final class ApiClient {
             JSONObject b = new JSONObject();
             b.put("action", "pair");
             b.put("requestId", requestId());
-            b.put("userId", userId);
+            if (userId != null && !userId.trim().isEmpty()) b.put("userId", userId.trim());
             b.put("pairingCode", pairingCode);
             b.put("deviceId", getDeviceId());
             postRaw(b, new Callback() {
@@ -137,11 +137,13 @@ public final class ApiClient {
             try {
                 URL u = new URL(API_URL);
                 c = (HttpURLConnection) u.openConnection();
-                c.setConnectTimeout(20000);
-                c.setReadTimeout(35000);
+                c.setConnectTimeout(30000);
+                c.setReadTimeout(120000);
                 c.setRequestMethod("POST");
+                c.setInstanceFollowRedirects(true);
                 c.setDoOutput(true);
                 c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                c.setRequestProperty("Accept", "application/json");
                 byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
                 // Buffered mode allows the platform to follow the Apps Script redirect.
                 try(OutputStream os = c.getOutputStream()) { os.write(bytes); }
@@ -151,12 +153,18 @@ public final class ApiClient {
                 String text = readAll(is);
                 JSONObject json = new JSONObject(text.isEmpty() ? "{}" : text);
                 if (!json.optBoolean("ok", false)) {
-                    postError(cb, json.optString("error", "HTTP_" + code));
+                    String error = json.optString("error", "HTTP_" + code);
+                    if ("AUTH_DENIED".equals(error)) clearAuth();
+                    postError(cb, error);
                 } else {
                     postSuccess(cb, json);
                 }
+            } catch (java.net.SocketTimeoutException e) {
+                postError(cb, "SERVER_TIMEOUT");
+            } catch (org.json.JSONException e) {
+                postError(cb, "SERVER_RESPONSE_INVALID");
             } catch (Exception e) {
-                postError(cb, "Нет связи с сервером. Проверьте интернет и повторите запрос.");
+                postError(cb, "NETWORK_ERROR");
             } finally {
                 if (c != null) c.disconnect();
                 synchronized (pending) { pending.remove(pendingKey); }

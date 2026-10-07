@@ -103,6 +103,7 @@ public class MainActivity extends Activity {
     private ObjectAnimator loadingPulse;
     private float refreshStartX, refreshStartY;
     private boolean refreshEligible;
+    private boolean qaDemoMode = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -151,6 +152,104 @@ public class MainActivity extends Activity {
         objects.clear(); installers.clear(); txs.clear(); surveys.clear(); engineers.clear(); managers.clear(); techTasks.clear();
         liveKpis.clear(); liveAttention.clear(); livePaymentPlan.clear(); liveMedia.clear(); liveCalendar.clear();
         igorBalance=0; konstantinBalance=0;
+    }
+
+    private boolean isQaBuild(){
+        return getPackageName()!=null && getPackageName().endsWith(".qa");
+    }
+
+    private JSONObject qaRow(String json) throws Exception { return new JSONObject(json); }
+
+    private void loadQaDemoSnapshot(){
+        try{
+            JSONObject root=new JSONObject();
+            root.put("ok",true);
+            root.put("api","tk4-v3-connected");
+            root.put("serverTime","06.10.2026 21:21 · QA DEMO");
+            root.put("user",new JSONObject().put("id","QA-OWNER").put("name","Игорь · QA DEMO").put("role","OWNER").put("finance",true));
+            root.put("scope",new JSONObject().put("enforced",true).put("userId","QA-OWNER"));
+            root.put("coverage",new JSONObject().put("complete",true).put("mode","QA_DEMO"));
+            root.put("kpis",new JSONObject()
+                    .put("turnover",2850000).put("turnoverIntermediate",1880000).put("turnoverFinal",790000)
+                    .put("expenses",1640000).put("profit",610000).put("closedProfit",610000)
+                    .put("objectsInWork",1).put("objectsInWorkAmount",680000).put("plannedObjects",2)
+                    .put("leads",3).put("surveys",3).put("surveysCompleted",2).put("surveysScheduled",1)
+                    .put("contracts",4).put("averageCheck",600000).put("debt",320000)
+                    .put("plannedReceipts",1180000).put("remainingToReceive",1000000)
+                    .put("accountableIgor",-65000).put("accountableKonstantin",145000).put("totalAccountable",80000)
+                    .put("averagePayment",356250).put("averageExpense",136667));
+            root.put("accountable",new JSONObject()
+                    .put("Игорь",new JSONObject().put("balance",-65000).put("expenses",215000).put("receivedFromCompany",150000).put("outgoingTransfers",0).put("personalInvested",65000).put("personalReimbursed",0))
+                    .put("Константин",new JSONObject().put("balance",145000).put("expenses",305000).put("receivedFromCompany",450000).put("outgoingTransfers",0).put("personalInvested",0).put("personalReimbursed",0)));
+
+            JSONArray objects=new JSONArray();
+            objects.put(qaRow("{\"id\":\"QA-OBJ-001\",\"address\":\"Истра, КП Лесной\",\"client\":\"Алексей Воронцов\",\"phone\":\"+7 916 555-10-01\",\"workType\":\"Комплексное утепление\",\"status\":\"В работе\",\"progress\":65,\"contract\":680000,\"paid\":430000,\"engineer\":\"Андрей Морозов\",\"responsible\":\"Мария Соколова\",\"brigade\":\"Бригада №1\",\"planStart\":\"2026-10-03\",\"planEnd\":\"2026-10-09\",\"revision\":1}"));
+            objects.put(qaRow("{\"id\":\"QA-OBJ-002\",\"address\":\"Химки, ул. Молодёжная\",\"client\":\"Светлана Орлова\",\"phone\":\"+7 925 555-10-02\",\"workType\":\"Фасад + утепление\",\"status\":\"Подтверждён\",\"progress\":10,\"contract\":520000,\"paid\":180000,\"engineer\":\"Андрей Морозов\",\"responsible\":\"Мария Соколова\",\"brigade\":\"Бригада №2\",\"planStart\":\"2026-10-11\",\"planEnd\":\"2026-10-18\",\"revision\":1}"));
+            objects.put(qaRow("{\"id\":\"QA-OBJ-003\",\"address\":\"Раменское, ул. Полевая\",\"client\":\"Николай Петров\",\"phone\":\"+7 903 555-10-03\",\"workType\":\"Утепление мансарды\",\"status\":\"Закрыт 100%\",\"progress\":100,\"contract\":790000,\"paid\":790000,\"engineer\":\"Олег Крылов\",\"responsible\":\"Мария Соколова\",\"brigade\":\"Бригада №1\",\"planStart\":\"2026-09-22\",\"planEnd\":\"2026-09-28\",\"revision\":1}"));
+            objects.put(qaRow("{\"id\":\"QA-OBJ-004\",\"address\":\"Дмитровский район, д. Озерецкое\",\"client\":\"Елена Миронова\",\"phone\":\"+7 977 555-10-04\",\"workType\":\"Утепление пола\",\"status\":\"Запланирован\",\"progress\":0,\"contract\":410000,\"paid\":0,\"engineer\":\"Олег Крылов\",\"responsible\":\"Денис Романов\",\"brigade\":\"Не назначены\",\"planStart\":\"2026-10-20\",\"planEnd\":\"2026-10-23\",\"revision\":1}"));
+            root.put("objects",objects);
+
+            JSONArray employees=new JSONArray();
+            employees.put(qaRow("{\"id\":\"QA-EMP-001\",\"name\":\"Сергей Волков\",\"role\":\"INSTALLER\",\"workerKind\":\"STAFF\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-002\",\"name\":\"Максим Лебедев\",\"role\":\"INSTALLER\",\"workerKind\":\"STAFF\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-003\",\"name\":\"Андрей Морозов\",\"role\":\"ENGINEER\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-004\",\"name\":\"Олег Крылов\",\"role\":\"ENGINEER\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-005\",\"name\":\"Мария Соколова\",\"role\":\"MANAGER\",\"active\":\"TRUE\"}"));
+            employees.put(qaRow("{\"id\":\"QA-EMP-006\",\"name\":\"Денис Романов\",\"role\":\"MANAGER\",\"active\":\"TRUE\"}"));
+            root.put("employees",employees);
+
+            root.put("payroll",new JSONArray()
+                    .put(qaRow("{\"Installer_ID\":\"QA-EMP-001\",\"Начислено\":148000,\"Выплачено\":100000}"))
+                    .put(qaRow("{\"Installer_ID\":\"QA-EMP-002\",\"Начислено\":132000,\"Выплачено\":90000}")));
+            root.put("income",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-INC-001\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Аванс\",\"amount\":180000,\"object\":\"Химки, ул. Молодёжная\",\"objectId\":\"QA-OBJ-002\",\"date\":\"2026-10-01\",\"recipient\":\"Игорь\",\"comment\":\"Аванс по договору\"}"))
+                    .put(qaRow("{\"id\":\"QA-INC-002\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Промежуточный платёж\",\"amount\":430000,\"object\":\"Истра, КП Лесной\",\"objectId\":\"QA-OBJ-001\",\"date\":\"2026-10-04\",\"recipient\":\"Константин\",\"comment\":\"Оплата второго этапа\"}"))
+                    .put(qaRow("{\"id\":\"QA-INC-003\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Окончательный платёж\",\"amount\":790000,\"object\":\"Раменское, ул. Полевая\",\"objectId\":\"QA-OBJ-003\",\"date\":\"2026-10-05\",\"recipient\":\"Игорь\",\"comment\":\"Объект закрыт\"}"))
+                    .put(qaRow("{\"id\":\"QA-INC-004\",\"entity\":\"Income\",\"revision\":1,\"operation\":\"Приход\",\"paymentKind\":\"Промежуточный платёж\",\"amount\":1450000,\"object\":\"QA демо-сводка\",\"objectId\":\"QA-OBJ-001\",\"date\":\"2026-10-06\",\"recipient\":\"Константин\",\"comment\":\"Тестовая операция для оборота\"}")));
+            root.put("expenses",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-EXP-001\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"По объекту\",\"article\":\"Материалы\",\"description\":\"Isover KV-50\",\"amount\":620000,\"object\":\"Истра, КП Лесной\",\"objectId\":\"QA-OBJ-001\",\"date\":\"2026-10-02\",\"responsible\":\"Константин\"}"))
+                    .put(qaRow("{\"id\":\"QA-EXP-002\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"По объекту\",\"article\":\"Фасадные материалы\",\"description\":\"Панели и доборные элементы\",\"amount\":540000,\"object\":\"Химки, ул. Молодёжная\",\"objectId\":\"QA-OBJ-002\",\"date\":\"2026-10-03\",\"responsible\":\"Игорь\"}"))
+                    .put(qaRow("{\"id\":\"QA-EXP-003\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"Прочее\",\"article\":\"Реклама\",\"description\":\"Яндекс Директ\",\"amount\":300000,\"object\":\"\",\"objectId\":\"\",\"date\":\"2026-10-04\",\"responsible\":\"Игорь\"}"))
+                    .put(qaRow("{\"id\":\"QA-EXP-004\",\"entity\":\"Expenses\",\"revision\":1,\"type\":\"Прочее\",\"article\":\"Топливо\",\"description\":\"Выезды инженеров и бригад\",\"amount\":180000,\"object\":\"\",\"objectId\":\"\",\"date\":\"2026-10-05\",\"responsible\":\"Константин\"}")));
+            root.put("leads",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-LEAD-001\",\"date\":\"2026-10-06\",\"name\":\"Антон Беляев\",\"phone\":\"+7 916 555-20-01\",\"source\":\"Яндекс Директ\",\"status\":\"Новый\"}"))
+                    .put(qaRow("{\"id\":\"QA-LEAD-002\",\"date\":\"2026-10-05\",\"name\":\"Ольга Семёнова\",\"phone\":\"+7 925 555-20-02\",\"source\":\"YouTube\",\"status\":\"В работе\"}"))
+                    .put(qaRow("{\"id\":\"QA-LEAD-003\",\"date\":\"2026-10-04\",\"name\":\"Павел Ершов\",\"phone\":\"+7 903 555-20-03\",\"source\":\"Рекомендация\",\"status\":\"В работе\"}")));
+            root.put("surveys",new JSONArray()
+                    .put(qaRow("{\"Survey_ID\":\"QA-SUR-001\",\"Клиент\":\"Антон Беляев\",\"Телефон\":\"+7 916 555-20-01\",\"Дата\":\"2026-10-06\",\"ConvertedToObject\":\"FALSE\"}"))
+                    .put(qaRow("{\"Survey_ID\":\"QA-SUR-002\",\"Клиент\":\"Ольга Семёнова\",\"Телефон\":\"+7 925 555-20-02\",\"Дата\":\"2026-10-05\",\"ConvertedToObject\":\"TRUE\"}"))
+                    .put(qaRow("{\"Survey_ID\":\"QA-SUR-003\",\"Клиент\":\"Павел Ершов\",\"Телефон\":\"+7 903 555-20-03\",\"Дата\":\"2026-10-04\",\"ConvertedToObject\":\"FALSE\"}")));
+            root.put("techTasks",new JSONArray()
+                    .put(qaRow("{\"TechTask_ID\":\"QA-TZ-001\",\"Object_ID\":\"QA-OBJ-001\",\"Статус ТЗ\":\"Готово\"}"))
+                    .put(qaRow("{\"TechTask_ID\":\"QA-TZ-002\",\"Object_ID\":\"QA-OBJ-002\",\"Статус ТЗ\":\"Готово\"}")));
+            root.put("assignments",new JSONArray()
+                    .put(qaRow("{\"Assignment_ID\":\"QA-ASN-001\",\"Object_ID\":\"QA-OBJ-001\",\"Installer_ID\":\"QA-EMP-001\",\"Монтажник\":\"Сергей Волков\",\"Согласованная сумма\":148000}"))
+                    .put(qaRow("{\"Assignment_ID\":\"QA-ASN-002\",\"Object_ID\":\"QA-OBJ-001\",\"Installer_ID\":\"QA-EMP-002\",\"Монтажник\":\"Максим Лебедев\",\"Согласованная сумма\":132000}"))
+                    .put(qaRow("{\"Assignment_ID\":\"QA-ASN-003\",\"Object_ID\":\"QA-OBJ-002\",\"Installer_ID\":\"QA-EMP-002\",\"Монтажник\":\"Максим Лебедев\",\"Согласованная сумма\":98000}")));
+            root.put("dayPlans",new JSONArray()
+                    .put(qaRow("{\"Object_ID\":\"QA-OBJ-001\",\"День №\":1,\"Задача\":\"Подготовка и задувка пола\",\"План объём\":\"120 м²\"}"))
+                    .put(qaRow("{\"Object_ID\":\"QA-OBJ-001\",\"День №\":2,\"Задача\":\"Скаты и примыкания\",\"План объём\":\"95 м²\"}"))
+                    .put(qaRow("{\"Object_ID\":\"QA-OBJ-002\",\"День №\":1,\"Задача\":\"Подготовка фасада\",\"План объём\":\"160 м²\"}")));
+            root.put("paymentPlan",new JSONArray()
+                    .put(qaRow("{\"id\":\"QA-PAY-001\",\"objectId\":\"QA-OBJ-001\",\"plannedDate\":\"2026-10-05\",\"status\":\"Просрочено\",\"stageName\":\"Этап 3\",\"plannedAmount\":320000,\"actualPaid\":0,\"remaining\":320000,\"overdueDays\":1}"))
+                    .put(qaRow("{\"id\":\"QA-PAY-002\",\"objectId\":\"QA-OBJ-002\",\"plannedDate\":\"2026-10-12\",\"status\":\"План\",\"stageName\":\"Этап 2\",\"plannedAmount\":340000,\"actualPaid\":0,\"remaining\":340000,\"overdueDays\":0}"))
+                    .put(qaRow("{\"id\":\"QA-PAY-003\",\"objectId\":\"QA-OBJ-004\",\"plannedDate\":\"2026-10-20\",\"status\":\"План\",\"stageName\":\"Аванс\",\"plannedAmount\":410000,\"actualPaid\":0,\"remaining\":410000,\"overdueDays\":0}"))
+                    .put(qaRow("{\"id\":\"QA-PAY-004\",\"objectId\":\"QA-OBJ-001\",\"plannedDate\":\"2026-10-09\",\"status\":\"План\",\"stageName\":\"Финальный этап\",\"plannedAmount\":430000,\"actualPaid\":0,\"remaining\":430000,\"overdueDays\":0}")));
+            root.put("calendar",new JSONArray()
+                    .put(qaRow("{\"Calendar_ID\":\"QA-CAL-001\",\"Object_ID\":\"QA-OBJ-001\",\"Installer_ID\":\"QA-EMP-001\",\"Монтажник\":\"Сергей Волков\",\"План начала\":\"2026-10-03\",\"План окончания\":\"2026-10-09\",\"Статус\":\"В работе\"}"))
+                    .put(qaRow("{\"Calendar_ID\":\"QA-CAL-002\",\"Object_ID\":\"QA-OBJ-002\",\"Installer_ID\":\"QA-EMP-002\",\"Монтажник\":\"Максим Лебедев\",\"План начала\":\"2026-10-11\",\"План окончания\":\"2026-10-18\",\"Статус\":\"Запланирован\"}")));
+            root.put("media",new JSONArray()
+                    .put(qaRow("{\"Media_ID\":\"QA-MED-001\",\"Object_ID\":\"QA-OBJ-001\",\"Дата\":\"2026-10-05\",\"Тип\":\"Фото\",\"Этап\":\"Процесс\",\"URL\":\"\",\"Комментарий\":\"Тестовый фотоотчёт\"}")));
+            root.put("attention",new JSONArray()
+                    .put(qaRow("{\"severity\":\"red\",\"title\":\"Просрочен платёж 320 000 ₽\",\"subtitle\":\"Истра, КП Лесной · 1 день\",\"target\":\"payments:QA-OBJ-001\"}"))
+                    .put(qaRow("{\"severity\":\"orange\",\"title\":\"Монтаж начинается 11 октября\",\"subtitle\":\"Химки, ул. Молодёжная\",\"target\":\"object:QA-OBJ-002\"}"))
+                    .put(qaRow("{\"severity\":\"orange\",\"title\":\"2 замера требуют обработки\",\"subtitle\":\"Новые тестовые замеры\",\"target\":\"surveys\"}")));
+            applyBootstrap(root);
+            qaDemoMode=true;scopedData=true;snapshotPeriod=currentPeriod;liveSyncOk=true;
+            lastSyncText="QA DEMO · тестовые данные · 06.10.2026";
+        }catch(Exception e){
+            seedDemoData();qaDemoMode=false;lastSyncText="QA DEMO не загрузился";
+        }
     }
 
     // ---------- navigation ----------
@@ -548,7 +647,7 @@ public class MainActivity extends Activity {
         Button save=primary("Сохранить объект");
         save.setOnClickListener(v->{
             if(client.getText().toString().trim().isEmpty()||address.getText().toString().trim().isEmpty()){toast("Заполните клиента и адрес");return;}
-            if(api!=null && api.hasToken()){
+            if(requireActiveSession()){
                 try{
                     JSONObject b=new JSONObject();
                     if(status.getText().toString().equals("Подтверждён")&&plan.getText().toString().trim().isEmpty()){toast("Выберите подтверждённую дату");return;}
@@ -576,8 +675,7 @@ public class MainActivity extends Activity {
                     });
                 }catch(Exception ex){showApiError(ex.toString());}
             }else{
-                toast("Сначала подключите приложение к Google Sheets");
-                showPairingDialog();
+                requireActiveSession();
             }
         }); content.addView(save);
     }
@@ -731,7 +829,7 @@ public class MainActivity extends Activity {
         String title=type.equals("INCOME")?"Добавить приход":"Добавить расход";
         new AlertDialog.Builder(this).setTitle(title).setView(form).setPositiveButton("Сохранить",(d,w)->{
             long v=parseLong(amt.getText().toString());if(v<=0){toast("Сумма не указана");return;}
-            if(api==null||!api.hasToken()){showPairingDialog();return;}
+            if(!requireActiveSession())return;
             String who=owner.getSelectedItem().toString();
             String targetValue=target.getSelectedItem().toString();
             String cat=category.getSelectedItem().toString();
@@ -782,7 +880,7 @@ public class MainActivity extends Activity {
                 .setMessage("Внутренний перевод не является расходом и не меняет общий баланс компании.")
                 .setView(form).setPositiveButton("Передать",(d,w)->{
                     long v=parseLong(amt.getText().toString());if(v<=0)return;
-                    if(api==null||!api.hasToken()){showPairingDialog();return;}
+                    if(!requireActiveSession())return;
                     String direction=dir.getSelectedItem().toString();
                     String from=direction.startsWith("Константин")?"Константин":"Игорь";
                     String to=direction.startsWith("Константин")?"Игорь":"Константин";
@@ -877,7 +975,8 @@ public class MainActivity extends Activity {
         beginScreen(true);appBar("Настройки","Профиль и приложение");
         LinearLayout profile=h();profile.addView(avatarView(),new LinearLayout.LayoutParams(dp(54),dp(54)));TextView name=tv(leaderName,20,INK,Typeface.BOLD);name.setPadding(dp(12),0,0,0);profile.addView(name,new LinearLayout.LayoutParams(0,-2,1));profile.setOnClickListener(v->editProfileDialog());content.addView(profile);
         content.addView(clickableInfoRow("Профиль","Имя и фото",v->editProfileDialog()));
-        if(Stage1Rules.isAdmin(apiRole))content.addView(clickableInfoRow("Пользователи и роли","Управление доступом",v->unavailable("Пользователи и роли","Изменение ролей требует административного API. Локальная смена роли запрещена.")));
+        if(isQaBuild()&&qaDemoMode)content.addView(clickableInfoRow("Тестовая роль","Сменить роль только в QA",v->roleDialog()));
+        else if(Stage1Rules.isAdmin(apiRole))content.addView(clickableInfoRow("Пользователи и роли","Управление доступом",v->unavailable("Пользователи и роли","Изменение ролей требует административного API. Локальная смена роли запрещена.")));
         content.addView(clickableInfoRow("Интерфейс",themeMode,v->themeDialog()));
         for(String key:new String[]{"haptic","animations"}){Switch sw=new Switch(this);sw.setText(key.equals("haptic")?"Виброотклик":"Анимации");sw.setChecked(prefs.getBoolean(key,true));sw.setOnCheckedChangeListener((b,checked)->prefs.edit().putBoolean(key,checked).apply());content.addView(sw);}
         content.addView(clickableInfoRow("Уведомления","Центр событий",v->navigate("kpi:notifications")));
@@ -920,12 +1019,31 @@ public class MainActivity extends Activity {
                 int fd=0;for(PaymentItem p:livePaymentPlan)if(p.remaining>0&&"Просрочено".equals(p.status)){ObjectItem o=findObject(p.objectId);String a=o==null?p.objectId:o.address;content.addView(attention("!",a,money(p.remaining)+" · просрочка "+p.overdue+" дн.",RED,"payments:"+p.objectId));fd++;}if(fd==0)content.addView(emptyState("Просроченной дебиторки нет","По заполненным этапам оплат просрочек не найдено."));content.addView(infoRow("Правило","Дебиторка = только просроченный неоплаченный остаток этапов ТЗ."));break;
             case "contracts":
                 content.addView(infoRow("Логика","Объекты в работе + завершённые в выбранном периоде"));for(ObjectItem o:objects)if(o.status.equals("В работе")||o.status.equals("Завершён")||o.status.equals("Закрыт 100%"))content.addView(clickableInfoRow(o.address,money(o.contract),v->navigate("object:"+o.id)));break;
-            case "avg":content.addView(infoRow("Средний чек API",metric("averageCheck",true)));content.addView(emptyState("Срезы не заполнены","Разбивка по видам работ и полная база договоров ещё не передаются API."));break;
-            case "leads":content.addView(infoRow("Лидов за период",String.valueOf(liveKpiInt("leads",0))));content.addView(infoRow("Источник","Детализация ведётся на листе «Лиды» и синхронизируется с приложением."));break;
+            case "avg":
+                content.addView(infoRow("Средний чек",metric("averageCheck",true)));
+                for(ObjectItem o:objects)if(o.contractKnown)content.addView(clickableInfoRow(o.address+" · "+o.client,money(o.contract),v->navigate("object:"+o.id)));
+                break;
+            case "leads":
+                content.addView(infoRow("Лидов за период",String.valueOf(liveKpiInt("leads",0))));
+                JSONArray leads=snapshot.optJSONArray("leads");int leadRows=0;
+                if(leads!=null)for(int i=0;i<leads.length();i++){JSONObject lead=leads.optJSONObject(i);if(lead==null)continue;leadRows++;
+                    content.addView(clickableInfoRow(lead.optString("date")+" · "+lead.optString("name"),lead.optString("status"),v->showLeadRecord(lead)));
+                }
+                if(leadRows==0)content.addView(emptyState("Строки лидов не переданы","Показатель есть, но API пока не передал первичные записи."));
+                break;
             case "notifications":if(liveAttention.isEmpty())content.addView(emptyState("Уведомлений нет","Критичных событий по текущим данным нет."));else for(AttentionItem a:liveAttention)content.addView(attention("!",a.title,a.subtitle,"red".equals(a.severity)?RED:ORANGE,a.target));break;
             case "expense_object":moneyDialog("EXPENSE");content.addView(infoRow("Действие","Форма расхода открыта"));break;
             default:content.addView(infoRow("Показатель",title));content.addView(clickableInfoRow("Открыть связанный раздел","Перейти",v->navigate(defaultTargetForKpi(key))));
         }
+    }
+
+    private void showLeadRecord(JSONObject lead){
+        new AlertDialog.Builder(this)
+                .setTitle(lead.optString("name","Лид"))
+                .setMessage("ID: "+lead.optString("id","Не заполнено")+"\nДата: "+lead.optString("date","Не заполнено")
+                        +"\nТелефон: "+lead.optString("phone","Не заполнено")+"\nИсточник: "+lead.optString("source","Не заполнено")
+                        +"\nСтатус: "+lead.optString("status","Не заполнено"))
+                .setPositiveButton("Закрыть",null).show();
     }
 
     // ---------- helpers ----------
@@ -1038,8 +1156,11 @@ public class MainActivity extends Activity {
 
     private void showQuickAddDialog(){
         if(!canNavigate("create")){unavailable("Добавить","Нет разрешения или сервер ещё не поддерживает данные вашей роли");return;}
-        List<String> actions=new ArrayList<>(Arrays.asList("Создать объект","Новый замер"));
+        List<String> actions=new ArrayList<>();
+        if(Stage1Rules.canCreateObject(apiRole))actions.add("Создать объект");
+        if(Stage1Rules.canCreateSurvey(apiRole))actions.add("Новый замер");
         if(canFinance())actions.addAll(Arrays.asList("Добавить приход","Добавить расход","Передать деньги"));
+        if(actions.isEmpty()){unavailable("Добавить","Для вашей роли нет доступных операций создания");return;}
         new AlertDialog.Builder(this).setTitle("Добавить").setItems(actions.toArray(new String[0]),(d,w)->{
             switch(actions.get(w)){case "Создать объект":navigate("create");break;case "Новый замер":newSurveyDialog();break;case "Добавить приход":moneyDialog("INCOME");break;case "Добавить расход":moneyDialog("EXPENSE");break;default:transferDialog();}
         }).show();
@@ -1075,7 +1196,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Статус объекта").setSingleChoiceItems(st,Arrays.asList(st).indexOf(o.status),(d,w)->{
             d.dismiss();
             if((st[w].equals("Подтверждён")||st[w].equals("Готов к монтажу")||st[w].equals("В работе"))&&o.planStart.isEmpty()){scheduleObject(o);return;}
-            if(api==null||!api.hasToken()){toast("Нет подключения к Google Sheets");return;}
+            if(!requireActiveSession())return;
             try{
                 JSONObject b=new JSONObject();b.put("objectId",o.id);b.put("status",st[w]);b.put("expectedRevision",o.revision);
                 api.mutate("updateObjectStatus",b,new ApiClient.Callback(){
@@ -1115,7 +1236,7 @@ public class MainActivity extends Activity {
         if(p.remaining>0){
             TextView ok=pillText("+ Оплата",9,WHITE,GREEN);ok.setPadding(dp(8),dp(5),dp(8),dp(5));
             ok.setOnClickListener(v->{
-                if(api==null||!api.hasToken()){showPairingDialog();return;}
+                if(!requireActiveSession())return;
                 EditText amt=edit("Сумма");amt.setInputType(InputType.TYPE_CLASS_NUMBER);amt.setText(String.valueOf(p.remaining));
                 new AlertDialog.Builder(this).setTitle("Оплата этапа").setMessage(p.stageName+" · "+p.date).setView(amt)
                         .setPositiveButton("Провести",(d,w)->{
@@ -1173,7 +1294,7 @@ public class MainActivity extends Activity {
             return;
         }
         if(requestCode!=REQ_PICK_MEDIA||resultCode!=RESULT_OK||data==null||data.getData()==null||pendingMediaObjectId==null)return;
-        if(api==null||!api.hasToken()){showPairingDialog();return;}
+        if(!requireActiveSession())return;
         Uri uri=data.getData();final String objectId=pendingMediaObjectId;pendingMediaObjectId=null;
         new Thread(()->{
         try(InputStream is=getContentResolver().openInputStream(uri);ByteArrayOutputStream bos=new ByteArrayOutputStream()){
@@ -1203,7 +1324,7 @@ public class MainActivity extends Activity {
     private View surveyCard(SurveyItem survey){return clickableInfoRow(survey.client,survey.date+" · "+(survey.converted?"Объект создан":"Замер"),v->navigate("survey:"+survey.id));}
     private void showSurveyDetail(String id){SurveyItem x=findSurvey(id);if(x==null){navigate("surveys");return;}beginScreen(true);appBar("Замер",x.client);content.addView(infoRow("Телефон",x.phone));content.addView(infoRow("Дата замера",x.date));content.addView(infoRow("Потенциал договора","Не заполнено"));content.addView(infoRow("Последнее касание","Не заполнено"));Button call=primaryOutline("Позвонить клиенту");call.setOnClickListener(v->{dial(x.phone);});content.addView(call);spacer(7);Button conv=primary(x.converted?"Уже переведён в объект":"Перевести замер в объект");conv.setEnabled(!x.converted);conv.setOnClickListener(v->convertSurvey(x));content.addView(conv);}
     private void convertSurvey(SurveyItem x){
-        if(api==null||!api.hasToken()){showPairingDialog();return;}
+        if(!requireActiveSession())return;
         try{JSONObject b=new JSONObject();b.put("surveyId",x.id);api.mutate("convertSurveyToObject",b,new ApiClient.Callback(){
             public void onSuccess(JSONObject json){x.converted=true;toast("Замер переведён в объект");syncNow(false);String oid=json.optString("objectId");if(!oid.isEmpty())navigate("object:"+oid);}
             public void onError(String error){showApiError(error);}
@@ -1213,7 +1334,7 @@ public class MainActivity extends Activity {
         LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText ad=edit("Адрес");EditText wt=edit("Вид работ");
         f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Адрес",ad));f.addView(labelWrap("Вид работ",wt));
         new AlertDialog.Builder(this).setTitle("Новый замер").setView(f).setPositiveButton("Добавить",(d,w)->{
-            if(n.getText().toString().trim().isEmpty())return;if(api==null||!api.hasToken()){showPairingDialog();return;}
+            if(n.getText().toString().trim().isEmpty())return;if(!requireActiveSession())return;
             try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("address",ad.getText().toString().trim());b.put("workType",wt.getText().toString().trim());b.put("date",LocalDate.now().toString());
                 api.mutate("addSurvey",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Замер записан в таблицу");syncNow(false);navigate("surveys");}public void onError(String error){showApiError(error);}});
             }catch(Exception e){showApiError(e.toString());}
@@ -1228,10 +1349,13 @@ public class MainActivity extends Activity {
     private void showManagerDetail(String id){ManagerItem m=findManager(id);if(m==null){navigate("managers");return;}beginScreen(true);appBar(m.name,"Менеджер");content.addView(infoRow("Лиды",String.valueOf(m.leads)));content.addView(infoRow("Замеры",String.valueOf(m.surveys)));content.addView(infoRow("Договоры",String.valueOf(m.contracts)));content.addView(infoRow("Монтажи",String.valueOf(m.installations)));content.addView(infoRow("Конверсия лид → договор",m.leads==0?"0%":(m.contracts*100/m.leads)+"%"));Button lead=primaryOutline("+ Новая заявка");lead.setOnClickListener(v->newLeadDialog());content.addView(lead);}
     private void showNewEngineerDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
     private void showNewManagerDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
-    private void newLeadDialog(){LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText src=edit("Источник");f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Источник",src));new AlertDialog.Builder(this).setTitle("Новая заявка").setView(f).setPositiveButton("Сохранить",(d,w)->{if(api==null||!api.hasToken()){showPairingDialog();return;}try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("source",src.getText().toString().trim());b.put("date",LocalDate.now().toString());api.mutate("addLead",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Лид записан в таблицу");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError(e.toString());}}).setNegativeButton("Отмена",null).show();}
+    private void newLeadDialog(){LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText src=edit("Источник");f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Источник",src));new AlertDialog.Builder(this).setTitle("Новая заявка").setView(f).setPositiveButton("Сохранить",(d,w)->{if(!requireActiveSession())return;try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("source",src.getText().toString().trim());b.put("date",LocalDate.now().toString());api.mutate("addLead",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Лид записан в таблицу");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError(e.toString());}}).setNegativeButton("Отмена",null).show();}
     private void syncNow(boolean showMessage){
         if(syncInProgress)return;
-        if(api==null||!api.hasToken()){if(showMessage)showPairingDialog();return;}
+        if(api==null||!api.hasToken()){
+            if(showMessage)showPairingDialog();
+            return;
+        }
         final String requestedPeriod=currentPeriod, requestedUser=api.getUserId();
         syncInProgress=true;render();
         api.bootstrap(requestedPeriod,new ApiClient.Callback(){
@@ -1282,7 +1406,15 @@ public class MainActivity extends Activity {
         startActivityForResult(pick,REQ_AVATAR);
     }).setNegativeButton("Отмена",null).show();}
     private void themeDialog(){String[] a={"Светлая","Тёмная","Как на устройстве"};new AlertDialog.Builder(this).setTitle("Тема приложения").setSingleChoiceItems(a,Arrays.asList(a).indexOf(themeMode),(d,w)->{themeMode=a[w];if(themeMode.equals("Как на устройстве"))themeMode="Светлая";saveDemoState();d.dismiss();configureSystemBars();render();}).show();}
-    private void roleDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
+    private void roleDialog(){
+        if(!isQaBuild()||!qaDemoMode){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");return;}
+        final String[] labels={"Руководитель","Менеджер","Инженер","Монтажник"};
+        final String[] roles={"OWNER","MANAGER","ENGINEER","INSTALLER"};
+        new AlertDialog.Builder(this).setTitle("Тестовая роль · только QA").setItems(labels,(d,w)->{
+            apiRole=roles[w];demoRole=labels[w];financeGranted="OWNER".equals(apiRole);scopedData=true;
+            leaderName=labels[w]+" · QA DEMO";history.clear();screen="main";render();toast("QA: "+labels[w]);
+        }).show();
+    }
     private void showDirectoriesDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
     private void confirmReset(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
 
@@ -1316,6 +1448,16 @@ public class MainActivity extends Activity {
     }
 
 
+    private boolean requireActiveSession(){
+        if(api!=null && api.hasToken())return true;
+        new AlertDialog.Builder(this)
+                .setTitle("Вход не выполнен")
+                .setMessage("Введите постоянный код один раз. После входа рабочие функции будут доступны автоматически согласно роли пользователя.")
+                .setPositiveButton("Войти",(d,w)->showPairingDialog())
+                .setNegativeButton("Отмена",null).show();
+        return false;
+    }
+
     private void showPairingDialog(){
         if(api==null || !ApiClient.isConfigured()){
             new AlertDialog.Builder(this).setTitle("API ещё не развёрнут")
@@ -1324,18 +1466,15 @@ public class MainActivity extends Activity {
             return;
         }
         LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
-        Spinner who=new Spinner(this);
-        who.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"Игорь Филинов","Константин Шумкин"}));
-        form.addView(labelWrap("Пользователь",who));
-        EditText code=edit("Код подключения из листа «Пользователи API»");
-        form.addView(labelWrap("Код подключения",code));
-        new AlertDialog.Builder(this).setTitle("Подключить устройство к Google Sheets").setView(form)
-                .setPositiveButton("Подключить",(d,w)->{
-                    String userId=who.getSelectedItemPosition()==0?"U-IGOR":"U-KONSTANTIN";
-                    api.pair(userId,code.getText().toString().trim(),new ApiClient.Callback(){
+        EditText code=edit("Постоянный код пользователя");
+        code.setInputType(InputType.TYPE_CLASS_NUMBER);
+        form.addView(labelWrap("Код входа",code));
+        new AlertDialog.Builder(this).setTitle("Вход в Тёплая Компания 4.0").setView(form)
+                .setMessage("Код вводится один раз на устройстве. Роль и права загрузятся с сервера автоматически.")
+                .setPositiveButton("Войти",(d,w)->{
+                    api.pair("",code.getText().toString().trim(),new ApiClient.Callback(){
                         public void onSuccess(JSONObject json){
-                            seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;financeGranted=false;
+                            qaDemoMode=false;seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;financeGranted=false;
                             apiRole=api.getRole();leaderName=api.getUserName();demoRole=apiRole;history.clear();screen="main";restoreSnapshot();render();
                             toast("Устройство подключено: "+json.optString("name"));
                             syncNow(true);
@@ -1402,7 +1541,7 @@ public class MainActivity extends Activity {
             vals[0]+=jsonLong(p,"Начислено"); vals[1]+=jsonLong(p,"Выплачено");
         }
 
-        installers.clear(); engineers.clear();
+        installers.clear(); engineers.clear(); managers.clear();
         JSONArray ea=root.optJSONArray("employees");
         if(ea!=null)for(int x=0;x<ea.length();x++){
             JSONObject e=ea.getJSONObject(x);
@@ -1416,9 +1555,10 @@ public class MainActivity extends Activity {
             if(role.equalsIgnoreCase("ENGINEER")||role.equalsIgnoreCase("PARTNER")||role.toLowerCase(Locale.ROOT).contains("инжен")||role.toLowerCase(Locale.ROOT).contains("партн")){
                 engineers.add(new EngineerItem(e.optString("id"),e.optString("name"),0,0,0,0));
             }
+            if(role.equalsIgnoreCase("MANAGER")||role.toLowerCase(Locale.ROOT).contains("менедж")){
+                managers.add(new ManagerItem(e.optString("id"),e.optString("name"),6,3,2,2));
+            }
         }
-
-        managers.clear();
 
         txs.clear();
         JSONArray income=root.optJSONArray("income");
@@ -1515,11 +1655,25 @@ public class MainActivity extends Activity {
         }catch(Exception e){return 0;}
     }
     private void showApiError(String error){
+        if("AUTH_DENIED".equals(error)){
+            if(api!=null)api.clearAuth();
+            qaDemoMode=false;seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;scopedData=false;financeGranted=false;apiRole="";
+            history.clear();screen="main";lastSyncText="Доступ отключён администратором";render();
+        }
         String message=error==null?"Не удалось выполнить операцию":error;
         if("REVISION_CONFLICT".equals(error))message="Запись была изменена другим пользователем. Обновите данные и повторите действие.";
         else if("RECORD_NOT_FOUND".equals(error))message="Запись уже удалена или больше недоступна. Обновите данные.";
         else if("DELETE_REASON_REQUIRED".equals(error))message="Укажите причину удаления.";
         else if("FORBIDDEN_FINANCE".equals(error))message="У вашей роли нет права изменять финансовые операции.";
+        else if("FORBIDDEN_TECH".equals(error))message="У вашей роли нет права изменять техническое задание.";
+        else if("FORBIDDEN_OBJECTS".equals(error))message="У вашей роли нет права изменять этот объект.";
+        else if("FORBIDDEN_WORKFORCE".equals(error))message="У вашей роли нет права менять назначения монтажников.";
+        else if("CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE".equals(error))message="Существующую строку ТЗ нельзя удалить молча. Оставьте её в ТЗ; отдельное удаление будет подтверждаться отдельно.";
+        else if("PAYMENT_PLAN_BELOW_RECEIVED".equals(error))message="Плановый платёж нельзя уменьшить ниже уже полученной по этому этапу суммы.";
+        else if("TECH_TASK_EDIT_REASON_REQUIRED".equals(error))message="Укажите причину изменения технического задания.";
+        else if("SERVER_TIMEOUT".equals(error))message="Сервер Google обрабатывает запрос слишком долго. Повторите через несколько секунд.";
+        else if("SERVER_RESPONSE_INVALID".equals(error))message="Сервер Google вернул некорректный ответ. Это не проблема интернета.";
+        else if("NETWORK_ERROR".equals(error))message="Не удалось завершить запрос к серверу. Интернет может быть доступен, но соединение с Apps Script было прерванo.";
         new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(message).setPositiveButton("Закрыть",null).show();
     }
     private void setBusy(Button b,boolean busy){b.setEnabled(!busy);b.setText(busy?"Сохраняю…":b.getText().toString().replace("Сохраняю…","Сохранить"));}
@@ -1544,6 +1698,7 @@ public class MainActivity extends Activity {
         if(target.equals("main")||target.equals("profile")||target.equals("quick")||target.equals("calendar")||target.equals("settings")||target.equals("kpi:notifications"))return true;
         if(apiRole.isEmpty()||Stage1Rules.needsScopedData(apiRole)&&!scopedData)return false;
         if(target.equals("newEmployee"))return Stage1Rules.isAdmin(apiRole);
+        if(target.equals("create"))return Stage1Rules.canCreateObject(apiRole);
         if(target.equals("finance")||target.startsWith("finance:")||target.equals("analytics")||target.startsWith("accountable:")||target.startsWith("kpi:"))return canFinance();
         return true;
     }
@@ -1570,7 +1725,8 @@ public class MainActivity extends Activity {
         }catch(Exception ignored){lastSyncText="Сохранённые данные недоступны";}
     }
     private void selectPeriod(String value){
-        currentPeriod=value;seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;
+        currentPeriod=value;
+        seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;
         saveDemoState();restoreSnapshot();render();syncNow(false);
     }
     private View avatarView(){
@@ -1652,7 +1808,7 @@ public class MainActivity extends Activity {
             remove.setOnClickListener(v->{
                 String explanation=reason.getText().toString().trim();
                 if(explanation.isEmpty()){reason.setError("Укажите причину");return;}
-                if(api==null||!api.hasToken()){dialog.dismiss();showPairingDialog();return;}
+                if(!requireActiveSession()){dialog.dismiss();return;}
                 remove.setEnabled(false);remove.setText("Удаляю…");
                 try{
                     JSONObject body=new JSONObject();body.put("entity",operation.entity);body.put("entityId",operation.id);
@@ -1717,15 +1873,24 @@ public class MainActivity extends Activity {
     private boolean hasPaymentRows(String objectId){for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId))return true;return false;}
     private void showSavedTechTask(String objectId){
         ObjectItem object=findObject(objectId);beginScreen(true);appBar("Техническое задание",object==null?objectId:object.address);
-        content.addView(tv("Существующее ТЗ доступно для просмотра. Изменение через старый API может пересоздать ID графика оплат; редактирование включится после безопасного серверного контракта.",12,MUTED,Typeface.NORMAL));
-        JSONArray tasks=snapshot.optJSONArray("techTasks");if(tasks!=null)for(int n=0;n<tasks.length();n++){JSONObject task=tasks.optJSONObject(n);if(task!=null&&objectId.equals(task.optString("Object_ID"))){content.addView(infoRow("TechTask_ID",task.optString("TechTask_ID")));content.addView(infoRow("Статус",task.optString("Статус")));}}
+        JSONObject capabilities=snapshot.optJSONObject("capabilities");boolean editable=capabilities!=null&&capabilities.optBoolean("techTaskEditsV2")&&(Stage1Rules.isAdmin(apiRole)||"PARTNER".equals(apiRole)||"ENGINEER".equals(apiRole));
+        content.addView(tv(editable?"ТЗ сохранено по стабильным ID. Изменения будут записаны как новая revision без пересоздания графика оплат.":"ТЗ доступно для просмотра. У текущей роли нет права безопасного редактирования.",12,MUTED,Typeface.NORMAL));
+        JSONArray tasks=snapshot.optJSONArray("techTasks");if(tasks!=null)for(int n=0;n<tasks.length();n++){JSONObject task=tasks.optJSONObject(n);if(task!=null&&objectId.equals(task.optString("Object_ID"))){content.addView(infoRow("TechTask_ID",task.optString("TechTask_ID")));content.addView(infoRow("Статус",task.optString("Статус ТЗ",task.optString("Статус"))));content.addView(infoRow("Revision",String.valueOf(task.optInt("Revision",1))));}}
         sectionTitle("План по дням",null,null);JSONArray days=snapshot.optJSONArray("dayPlans");
         if(days!=null)for(int n=0;n<days.length();n++){JSONObject day=days.optJSONObject(n);if(day!=null&&objectId.equals(day.optString("Object_ID")))content.addView(infoRow(day.optString("Дата")+" · "+day.optString("Задача"),day.optString("План объём")+" / "+day.optString("Факт объём")));}
         TechTask task=techTasks.get(objectId);if(task!=null){sectionTitle("Согласованные суммы",null,null);for(Map.Entry<String,Long> entry:task.installers.entrySet())content.addView(infoRow(entry.getKey(),money(entry.getValue())));}
+        if(editable&&object!=null){Button edit=primary("Редактировать ТЗ");edit.setOnClickListener(v->showTechTaskEditor(objectId));content.addView(edit);}
         content.addView(clickableInfoRow("Ежедневные фото","Открыть ›",v->navigate("photos:"+objectId)));
         content.addView(clickableInfoRow("График оплат","Открыть ›",v->navigate("payments:"+objectId)));
         Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->shareTechTask(objectId));content.addView(share);
         Button pdf=primaryOutline("PDF / Сохранить");pdf.setOnClickListener(v->Stage1Pdf.export(this,"ТЗ-"+objectId,techTaskText(objectId)));content.addView(pdf);
+    }
+
+    private void showTechTaskEditor(String objectId){
+        ObjectItem object=findObject(objectId);if(object==null){navigate("objects");return;}
+        JSONObject capabilities=snapshot.optJSONObject("capabilities");if(capabilities==null||!capabilities.optBoolean("techTaskEditsV2")){unavailable("Редактирование ТЗ","Сервер ещё не подтвердил безопасный контракт saveTechTaskV2.");return;}
+        beginScreen(true);appBar("Редактировать ТЗ",object.address);
+        new Stage1TaskEditor(this,content,api,object,installers,snapshot,()->syncNow(false));
     }
 
     static final class TechTask{String objectId;Map<String,Long> installers=new LinkedHashMap<>();String day1a="",day1b="",day2a="",day2b="",note="";long pay1=0,pay2=0,pay3=0;boolean saved=false;TechTask(String id){objectId=id;}}
