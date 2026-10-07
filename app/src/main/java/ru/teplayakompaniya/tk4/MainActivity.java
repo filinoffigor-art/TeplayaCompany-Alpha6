@@ -647,7 +647,7 @@ public class MainActivity extends Activity {
         Button save=primary("Сохранить объект");
         save.setOnClickListener(v->{
             if(client.getText().toString().trim().isEmpty()||address.getText().toString().trim().isEmpty()){toast("Заполните клиента и адрес");return;}
-            if(api!=null && api.hasToken()){
+            if(requireActiveSession()){
                 try{
                     JSONObject b=new JSONObject();
                     if(status.getText().toString().equals("Подтверждён")&&plan.getText().toString().trim().isEmpty()){toast("Выберите подтверждённую дату");return;}
@@ -1196,7 +1196,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Статус объекта").setSingleChoiceItems(st,Arrays.asList(st).indexOf(o.status),(d,w)->{
             d.dismiss();
             if((st[w].equals("Подтверждён")||st[w].equals("Готов к монтажу")||st[w].equals("В работе"))&&o.planStart.isEmpty()){scheduleObject(o);return;}
-            if(api==null||!api.hasToken()){toast("Нет подключения к Google Sheets");return;}
+            if(!requireActiveSession())return;
             try{
                 JSONObject b=new JSONObject();b.put("objectId",o.id);b.put("status",st[w]);b.put("expectedRevision",o.revision);
                 api.mutate("updateObjectStatus",b,new ApiClient.Callback(){
@@ -1726,7 +1726,6 @@ public class MainActivity extends Activity {
     }
     private void selectPeriod(String value){
         currentPeriod=value;
-        if(isQaBuild() && (api==null || !api.hasToken())){loadQaDemoSnapshot();saveDemoState();render();return;}
         seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;
         saveDemoState();restoreSnapshot();render();syncNow(false);
     }
