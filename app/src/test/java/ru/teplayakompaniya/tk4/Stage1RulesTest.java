@@ -12,8 +12,16 @@ public class Stage1RulesTest {
         }
         assertTrue(Stage1Rules.isAdmin("OWNER"));
         assertTrue(Stage1Rules.isAdmin("admin"));
+        assertTrue(Stage1Rules.canSeeCompanyFinance("OWNER", false));
+        assertFalse(Stage1Rules.canSeeCompanyFinance("ADMIN", false));
+        assertTrue(Stage1Rules.canSeeCompanyFinance("ADMIN", true));
         assertFalse(Stage1Rules.canSeeCompanyFinance("PARTNER", false));
         assertTrue(Stage1Rules.canSeeCompanyFinance("PARTNER", true));
+        assertTrue(Stage1Rules.canCreateObject("MANAGER"));
+        assertTrue(Stage1Rules.canCreateSurvey("ENGINEER"));
+        assertFalse(Stage1Rules.canCreateObject("INSTALLER"));
+        assertTrue(Stage1Rules.canUploadMedia("INSTALLER"));
+        assertFalse(Stage1Rules.canEditTech("MANAGER"));
     }
     @Test public void taskNeedsConfirmedObjectAndDate() {
         assertFalse(Stage1Rules.canCreateTask("Запланирован", "2026-09-18"));
