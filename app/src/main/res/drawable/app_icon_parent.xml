@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Full-bleed square background: no transparent or uneven outer margins. -->
+    <path
+        android:fillColor="#075F46"
+        android:pathData="M0,0H108V108H0Z" />
+    <!-- Even inset frame so the icon reads as the permanent/root installation. -->
+    <path
+        android:fillColor="#075F46"
+        android:strokeColor="#D7A84B"
+        android:strokeWidth="4"
+        android:pathData="M7,7H101V101H7Z" />
+    <!-- Geometric Т -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,28H50V38H40V80H30V38H20Z" />
+    <!-- Geometric К -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,28H66V48L83,28H96L75,52L98,80H85L66,57V80H56Z" />
+    <!-- Root marker -->
+    <path
+        android:fillColor="#D7A84B"
+        android:pathData="M23,88H85V94H23Z" />
+</vector>
