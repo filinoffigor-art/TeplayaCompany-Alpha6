@@ -46,6 +46,23 @@ test('deleted transfer no longer affects accountable balances',()=>{
 test('journal resumes interrupted write without double applying',()=>{failTable='Expenses';const b={amount:15,article:'Материалы',description:'Paint',accountable:'P1',paymentStatus:'Оплачено',method:'Наличные'};assert.throws(()=>command('addExpense',b),/SIMULATED_INTERRUPTION/);assert.equal(context.opRows_('AuditLog')[0].CommitState,'PREPARED');context.opRecover_();command('addExpense',b);assert.equal(context.opRows_('Expenses').length,1);assert.equal(context.opRows_('AuditLog')[0].CommitState,'COMMITTED');});
 test('untrusted auth fields never enter audit payload',()=>{command('transfer',{from:'P1',to:'P2',amount:1,token:'SECRET_TOKEN',pairingCode:'SECRET_CODE',role:'OWNER'});assert(!JSON.stringify(tables.AuditLog.data).includes('SECRET'));});
 test('manager cannot write company finances',()=>{assert.throws(()=>command('transfer',{from:'P1',to:'P2',amount:1},{userId:'M1',role:'MANAGER',finance:true}),/FORBIDDEN_FINANCE/);});
+test('pairing resolves the real user by selected name and one-time code instead of a hardcoded ID',()=>{
+ tables.Users=sheet('Users',[
+  {ID:'REAL-OWNER-17',Name:'Игорь Филинов',Role:'OWNER',Active:true,PairingCode:'8642',Finance:true},
+  {ID:'REAL-PARTNER-29',Name:'Константин Шумкин',Role:'PARTNER',Active:true,PairingCode:'1357',Finance:true}
+ ]);vm.runInContext('opTables_={}',context);
+ const result=context.opPair_({userName:'Игорь Филинов',pairingCode:'8642',deviceId:'DEVICE-NEW'});
+ assert.equal(result.userId,'REAL-OWNER-17');assert.equal(result.name,'Игорь Филинов');assert(result.token);
+ vm.runInContext('opTables_={}',context);
+ const stored=context.opFind_('Users','REAL-OWNER-17');assert.equal(stored.PairingCode,null);assert.equal(stored.Device_ID,'DEVICE-NEW');
+});
+test('pairing rejects a code that belongs to another selected user',()=>{
+ tables.Users=sheet('Users',[
+  {ID:'REAL-OWNER-17',Name:'Игорь Филинов',Role:'OWNER',Active:true,PairingCode:'8642'},
+  {ID:'REAL-PARTNER-29',Name:'Константин Шумкин',Role:'PARTNER',Active:true,PairingCode:'1357'}
+ ]);vm.runInContext('opTables_={}',context);
+ assert.throws(()=>context.opPair_({userName:'Игорь Филинов',pairingCode:'1357',deviceId:'DEVICE-X'}),/PAIRING_DENIED/);
+});
 test('owner can create installer without exposing a technical setup flow',()=>{
  const result=command('createInstaller',{name:'Installer New',phone:'+79990000000'});assert(result.id);
  const employee=context.opRows_('Employees').find(r=>r.ID===result.id);assert.equal(employee.Name,'Installer New');assert.equal(employee.Role,'INSTALLER');assert.equal(employee.WorkerKind,'STAFF');
