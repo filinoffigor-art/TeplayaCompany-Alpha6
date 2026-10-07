@@ -130,6 +130,54 @@ test('untrusted auth fields never enter audit payload',()=>{command('transfer',{
 test('manager cannot write company finances',()=>{assert.throws(()=>command('transfer',{from:'P1',to:'P2',amount:1},{userId:'M1',role:'MANAGER',finance:true}),/FORBIDDEN_FINANCE/);});
 test('manager bootstrap is scoped and excludes company finance',()=>{const r=context.opBootstrap_({userId:'M1',role:'MANAGER',employeeId:'M1'},'Месяц');assert.equal(r.objects.length,1);assert.equal(r.objects[0].id,'O1');assert.equal(r.accountable,undefined);assert.equal(r.income,undefined);assert.equal(r.kpis.expenses,undefined);assert(!JSON.stringify(r).includes('Private other client'));});
 test('installer bootstrap excludes contract amounts and other wages',()=>{tables.Assignments=sheet('Assignments',[{ID:'A1',Object_ID:'O1',Installer_ID:'I1'},{ID:'A2',Object_ID:'O1',Installer_ID:'I2'}]);tables.SalaryAccruals=sheet('SalaryAccruals',[{ID:'S1',Installer_ID:'I1',Начислено:100},{ID:'S2',Installer_ID:'I2',Начислено:999999}]);const r=context.opBootstrap_({userId:'U1',role:'INSTALLER',employeeId:'I1'},'Месяц');assert.equal(r.objects.length,1);assert.equal(r.objects[0].contract,undefined);assert.equal(r.assignments.length,1);assert.equal(r.payroll.length,1);assert(!JSON.stringify(r).includes('999999'));});
+
+test('central RBAC blocks direct API bypass for restricted roles',()=>{
+ assert.throws(()=>command('saveTechTask',{objectId:'O1'},{userId:'M1',role:'MANAGER',employeeId:'M1'}),/FORBIDDEN_TECH/);
+ assert.throws(()=>command('updateObject',{objectId:'O1',expectedRevision:1,status:'Подтверждён'},{userId:'M1',role:'MANAGER',employeeId:'M1'}),/FORBIDDEN_OBJECTS/);
+ assert.throws(()=>command('createObject',{client:'Client',address:'X'},{userId:'I1',role:'INSTALLER',employeeId:'I1'}),/FORBIDDEN_OBJECTS/);
+});
+test('manager scoped assignments never expose installer compensation',()=>{
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','Согласованная сумма':50000,DailyRateMinor:500000,AccruedMinor:1000000,PaidMinor:500000,Revision:1}]);
+ const r=context.opBootstrap_({userId:'M1',role:'MANAGER',employeeId:'M1'},'Месяц');assert.equal(r.assignments.length,1);
+ const json=JSON.stringify(r.assignments[0]);assert(!json.includes('50000'));assert.equal(r.assignments[0].agreedAmount,undefined);assert.equal(r.assignments[0].dailyRate,undefined);assert.equal(r.assignments[0].accrued,undefined);
+});
+test('engineer cannot move an assignment from an object outside own scope',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer',Role:'INSTALLER',Active:true,Revision:1}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A2',Assignment_ID:'A2',Object_ID:'O2',Installer_ID:'I1',Payment_Type:'DAILY',DailyRateMinor:400000,Period_Start:'2026-09-01',Period_End:'2026-09-30',Revision:1}]);
+ vm.runInContext('opTables_={}',context);
+ assert.throws(()=>context.opCommand_({userId:'E1',role:'ENGINEER',employeeId:'E1'},{action:'moveInstaller',requestId:'MOVE-OUTSIDE',Installer_ID:'I1',Assignment_ID:'A2',Object_ID:'O1',transitionDate:'2026-09-10',expectedRevision:1,paymentType:'DAILY',dailyRate:5000,reason:'Попытка обхода'}),/OBJECT_NOT_FOUND/);
+});
+test('saveTechTaskV2 patches by ID, preserves payment IDs and rejects stale revision',()=>{
+ tables.Objects=sheet('Objects',[{ID:'O1',Client_ID:'C1',Address:'Object 1',Status:'В работе',PlanStart:'2026-09-10',PlanEnd:'2026-09-20',ContractMinor:100000,Engineer_ID:'E1',Revision:1}]);
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,Revision:1}]);
+ tables.TechTasks=sheet('TechTasks',[{ID:'T1',TechTask_ID:'T1',Object_ID:'O1','Статус ТЗ':'Черновик',Engineer_ID:'E1','План начала':'2026-09-10','План окончания':'2026-09-20','Материалы готовы':false,Revision:2}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',TechTask_ID:'T1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','Согласованная сумма':400,'Назначен с':'2026-09-10','Назначен до':'2026-09-20',Revision:1}]);
+ tables.Calendar=sheet('Calendar',[{ID:'C1',Calendar_ID:'C1',Assignment_ID:'A1',TechTask_ID:'T1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','План начало':'2026-09-10','План конец':'2026-09-20','Статус':'Подтверждён',Revision:1}]);
+ tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',DayPlan_ID:'D1',TechTask_ID:'T1',Object_ID:'O1','День №':1,'Дата':'2026-09-10','Задача':'Старый этап','Ед. изм.':'м2','План объём':10,'Статус':'План',Revision:1}]);
+ tables.PaymentSchedule=sheet('PaymentSchedule',[{ID:'P1',PaymentPlan_ID:'P1',TechTask_ID:'T1',Object_ID:'O1',Date:'2026-09-20',AmountMinor:100000,'Этап №':1,'Наименование этапа':'Финал','Плановая дата':'2026-09-20','Плановая сумма':1000,Revision:1}]);
+ vm.runInContext('opTables_={}',context);
+ const payload={techTaskId:'T1',expectedRevision:2,reason:'Уточнение ТЗ',planStart:'2026-09-10',planEnd:'2026-09-21',materialsReady:true,comment:'Новая редакция',
+  assignments:[{assignmentId:'A1',installerId:'I1',agreedAmount:500,expectedRevision:1}],
+  days:[{dayPlanId:'D1',expectedRevision:1,dayNo:2,date:'2026-09-11',task:'Новый этап',unit:'м2',plannedQty:12,status:'План'}],
+  payments:[{paymentPlanId:'P1',expectedRevision:1,stageNo:1,stageName:'Финал',plannedDate:'2026-09-21',plannedAmount:1000}]};
+ const first=command('saveTechTaskV2',payload),again=command('saveTechTaskV2',payload);assert.equal(first.id,'T1');assert.equal(again.id,'T1');assert.equal(first.preservedChildIds,true);
+ assert.equal(context.opRows_('TechTasks')[0].Revision,3);assert.equal(context.opRows_('TechTasks')[0]['Комментарий'],'Новая редакция');
+ assert.equal(context.opRows_('Assignments').length,1);assert.equal(context.opRows_('Assignments')[0].ID,'A1');assert.equal(context.opRows_('Assignments')[0]['Согласованная сумма'],500);assert.equal(context.opRows_('Assignments')[0].Revision,2);
+ assert.equal(context.opRows_('DailyPlans').length,1);assert.equal(context.opRows_('DailyPlans')[0].ID,'D1');assert.equal(context.opRows_('DailyPlans')[0]['Задача'],'Новый этап');assert.equal(context.opRows_('DailyPlans')[0].Revision,2);
+ assert.equal(context.opRows_('PaymentSchedule').length,1);assert.equal(context.opRows_('PaymentSchedule')[0].ID,'P1');assert.equal(context.opRows_('PaymentSchedule')[0].Revision,2);
+ assert.equal(context.opRows_('Calendar')[0].ID,'C1');assert.equal(context.opRows_('Calendar')[0]['План конец'],'2026-09-21');
+ assert.throws(()=>context.opCommand_(owner,{action:'saveTechTaskV2',requestId:'STALE-TASK',...payload,expectedRevision:2,reason:'Повтор после чужого изменения'}),/REVISION_CONFLICT/);
+});
+test('saveTechTaskV2 refuses silent removal of existing children',()=>{
+ tables.Objects=sheet('Objects',[{ID:'O1',Client_ID:'C1',Address:'Object 1',Status:'В работе',PlanStart:'2026-09-10',PlanEnd:'2026-09-20',ContractMinor:100000,Revision:1}]);
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,Revision:1},{ID:'I2',Name:'Installer 2',Role:'INSTALLER',Active:true,Revision:1}]);
+ tables.TechTasks=sheet('TechTasks',[{ID:'T1',TechTask_ID:'T1',Object_ID:'O1','План начала':'2026-09-10','План окончания':'2026-09-20',Revision:1}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',TechTask_ID:'T1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','Согласованная сумма':400,Revision:1}]);
+ tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',DayPlan_ID:'D1',TechTask_ID:'T1',Object_ID:'O1','День №':1,'Дата':'2026-09-10','Задача':'Этап','Ед. изм.':'м2','План объём':10,Revision:1}]);
+ tables.PaymentSchedule=sheet('PaymentSchedule',[{ID:'P1',PaymentPlan_ID:'P1',TechTask_ID:'T1',Object_ID:'O1',Date:'2026-09-20',AmountMinor:100000,'Этап №':1,'Наименование этапа':'Финал',Revision:1}]);vm.runInContext('opTables_={}',context);
+ assert.throws(()=>context.opCommand_(owner,{action:'saveTechTaskV2',requestId:'DROP-CHILD',techTaskId:'T1',expectedRevision:1,reason:'Не удалять молча',planStart:'2026-09-10',planEnd:'2026-09-20',materialsReady:false,
+  assignments:[{installerId:'I2',agreedAmount:500}],days:[{dayPlanId:'D1',expectedRevision:1,date:'2026-09-10',task:'Этап',unit:'м2',plannedQty:10}],payments:[{paymentPlanId:'P1',expectedRevision:1,stageName:'Финал',plannedDate:'2026-09-20',plannedAmount:1000}]}),/CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE/);
+});
 test('source workday does not masquerade as a technical task',()=>{tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',Object_ID:'O1',Date:'2026-09-01'}]);const r=context.opBootstrap_(owner,'Месяц');assert.equal(r.dayPlans.length,0);});
 test('missing profit remains null instead of cash-flow fallback',()=>{const r=context.opBootstrap_(owner,'Месяц');assert.equal(r.kpis.closedProfit,null);assert.equal(r.kpis.averagePayment,null);});
 test('planned expense and transfer cannot inflate actual expense KPI',()=>{assert.equal(context.opExpenseSigned_({Status:'PLANNED',AmountMinor:900}),0);assert.equal(context.opExpenseSigned_({Status:'REFUND',AmountMinor:900}),-900);});
