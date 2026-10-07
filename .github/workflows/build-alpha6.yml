@@ -49,7 +49,7 @@ jobs:
       - name: Static contracts
         run: |
           grep -q "applicationId 'ru.teplayakompaniya.tk4'" app/build.gradle
-          grep -q "versionCode 605000" app/build.gradle
+          grep -q "versionCode 605001" app/build.gradle
           grep -q 'AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
           if grep -R 'WebView\|Log\.\|System.out.print' app/src/main/java; then exit 1; fi
       - name: Backend and migration contracts
@@ -63,29 +63,40 @@ jobs:
           mkdir baseline
           git archive 4ee39e807acdf085113c9204db46e28dce008737 | tar -x -C baseline
           ./gradle-8.11.1/bin/gradle -p baseline assembleDebug --no-daemon
-      - name: Publish explicit-signing stable parent
+      - name: Download stable parent 6.5.0
+        uses: actions/download-artifact@v4
+        with:
+          name: TeplayaCompany-v6.5.0-STABLE-PARENT
+          path: stable-parent
+          run-id: 37602576557
+          github-token: ${{ github.token }}
+      - name: Verify update signature matches stable parent
         id: compatibility
         run: |
           mkdir -p delivery qa
           signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          parent_file=$(find stable-parent -name 'TeplayaCompany-v6.5.0-stable-parent.apk' -print -quit)
+          test -n "$parent_file"
+          parent=$($signer verify --print-certs "$parent_file" | grep 'certificate SHA-256 digest')
           current=$($signer verify --print-certs app/build/outputs/apk/debug/app-debug.apk | grep 'certificate SHA-256 digest')
-          echo "$current" | tee delivery/PARENT_CERTIFICATE.txt
-          echo 'artifact=TeplayaCompany-v6.5.0-STABLE-PARENT' >> "$GITHUB_OUTPUT"
-          echo 'STABLE PARENT WITH EXPLICIT PERSISTENT SIGNING. Keep installed. Future updates must install over this app.' > delivery/COMPATIBILITY.txt
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.5.0-stable-parent.apk
+          echo "Stable parent: $parent"
+          echo "Update:        $current"
+          test "$current" = "$parent"
+          echo 'artifact=TeplayaCompany-v6.5.1-UPDATE-COMPATIBLE' >> "$GITHUB_OUTPUT"
+          echo 'VERIFIED UPDATE FOR 6.5.0 STABLE PARENT. Install over the existing app. Do not uninstall.' > delivery/COMPATIBILITY.txt
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.5.1-update.apk
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Emulator QA at 412 x 915 dp
-        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           disable-animations: true
-          script: TK4_FRESH_PARENT=1 bash scripts/stage1-emulator.sh
+          script: TK4_PARENT_APK=stable-parent/TeplayaCompany-v6.5.0-stable-parent.apk bash scripts/stage1-emulator.sh
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
