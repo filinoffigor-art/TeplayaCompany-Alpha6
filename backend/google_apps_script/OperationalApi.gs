@@ -96,6 +96,95 @@ function opBalances_(people,income,expenses,transfers){
     out[p.Name]={Accountable_ID:p.ID,balance:balance==null?null:opRub_(balance+received-spent+incoming-outgoing),opening:opRub_(balance),clientReceipts:opRub_(received),expenses:opRub_(spent),incomingTransfers:opRub_(incoming),outgoingTransfers:opRub_(outgoing)};
   });return out;
 }
+function opClosedStatus_(status){return ['Работы завершены','Завершён','Закрыт 100%'].indexOf(opStr_(status))>=0;}
+function opAssignmentAmount_(row){const n=Number(row&&row['Согласованная сумма']);return Number.isFinite(n)&&n>0?n:0;}
+function opPayrollPaid_(installerId,objectId){return opRows_('SalaryAccruals').filter(r=>r.Installer_ID===installerId&&r.Object_ID===objectId).reduce((n,r)=>n+(Number(r['Выплачено'])||0),0);}
+function opInstallerAnalytics_(auth,objects,range,employees){
+  const role=opRole_(auth),allowedIds=new Set(objects.map(o=>o.ID));
+  let assignments=opRows_('Assignments').filter(a=>allowedIds.has(a.Object_ID));
+  if(role==='INSTALLER')assignments=assignments.filter(a=>a.Installer_ID===auth.employeeId);
+  const plans=opRows_('DailyPlans').filter(d=>allowedIds.has(d.Object_ID));
+  const stats=[],objectPay=[];
+  employees.filter(e=>/INSTALLER|МОНТАЖ|НАЁМ/i.test(opStr_(e.Role)+' '+opStr_(e.WorkerKind))).forEach(employee=>{
+    const own=assignments.filter(a=>a.Installer_ID===employee.ID),objectIds=new Set(own.map(a=>a.Object_ID)),dates=new Set();
+    plans.forEach(d=>{
+      if(!objectIds.has(d.Object_ID)||!(Number(d['Факт объём'])>0)||!opInPeriod_(d['Дата'],range))return;
+      const active=own.some(a=>a.Object_ID===d.Object_ID&&(!opDate_(a['Назначен с'])||d['Дата']>=opDate_(a['Назначен с']))&&(!opDate_(a['Назначен до'])||d['Дата']<=opDate_(a['Назначен до'])));
+      if(active)dates.add(opDate_(d['Дата']));
+    });
+    const closedIds=new Set(),closedInPeriod=new Set();let earned=0,earnedAll=0;
+    own.forEach(a=>{const object=objects.find(o=>o.ID===a.Object_ID);if(!object||!opClosedStatus_(object.Status))return;closedIds.add(object.ID);earnedAll+=opAssignmentAmount_(a);const end=opDate_(object.ActualEnd);if(end&&opInPeriod_(end,range)){closedInPeriod.add(object.ID);earned+=opAssignmentAmount_(a);}});
+    let paidAll=0,dueAll=0;
+    const grouped={};own.forEach(a=>{const key=a.Object_ID;(grouped[key]||(grouped[key]=[])).push(a);});
+    Object.keys(grouped).forEach(objectId=>{
+      const object=objects.find(o=>o.ID===objectId);if(!object)return;
+      const agreed=grouped[objectId].reduce((n,a)=>n+opAssignmentAmount_(a),0),paid=opPayrollPaid_(employee.ID,objectId),remaining=Math.max(0,agreed-paid);
+      paidAll+=paid;dueAll+=remaining;
+      objectPay.push({installerId:employee.ID,objectId:objectId,address:object.Address,status:object.Status,closed:opClosedStatus_(object.Status),closedDate:opDate_(object.ActualEnd),agreed:agreed,earned:opClosedStatus_(object.Status)?agreed:0,paid:paid,remaining:remaining});
+    });
+    stats.push({installerId:employee.ID,workDays:dates.size,closedObjects:closedInPeriod.size,earned:earned,earnedAll:earnedAll,paidAll:paidAll,dueAll:dueAll});
+  });
+  return {stats:stats,objects:objectPay};
+}
+function opBitrixConfig_(){
+  const p=PropertiesService.getScriptProperties(),base=opStr_(p.getProperty('BITRIX_WEBHOOK_BASE')).trim().replace(/\/+$/,'');
+  return {base:base,category:opStr_(p.getProperty('BITRIX_MEASUREMENTS_CATEGORY_ID')).trim(),surveyField:opStr_(p.getProperty('BITRIX_SURVEY_ID_FIELD')).trim(),
+    stage:opStr_(p.getProperty('BITRIX_MEASUREMENTS_STAGE_ID')).trim(),phoneField:opStr_(p.getProperty('BITRIX_SURVEY_PHONE_FIELD')).trim(),
+    addressField:opStr_(p.getProperty('BITRIX_SURVEY_ADDRESS_FIELD')).trim(),workTypeField:opStr_(p.getProperty('BITRIX_SURVEY_WORKTYPE_FIELD')).trim(),
+    dateField:opStr_(p.getProperty('BITRIX_SURVEY_DATE_FIELD')).trim(),lastSync:opStr_(p.getProperty('BITRIX_MEASUREMENTS_LAST_SYNC')).trim()};
+}
+function opBitrixReady_(cfg){return !!(cfg&&cfg.base&&cfg.category&&cfg.surveyField);}
+function opBitrixCall_(cfg,method,payload){
+  if(!opBitrixReady_(cfg))throw Error('BITRIX_NOT_CONFIGURED');
+  const response=UrlFetchApp.fetch(cfg.base+'/'+method+'.json',{method:'post',payload:payload||{},muteHttpExceptions:true});
+  const code=response.getResponseCode(),body=JSON.parse(response.getContentText()||'{}');
+  if(code<200||code>=300||body.error)throw Error('BITRIX_REQUEST_FAILED');
+  return body;
+}
+function opBitrixDealFields_(cfg,survey){
+  const fields={TITLE:survey.Name||survey['Клиент']||'Замер',CATEGORY_ID:cfg.category,COMMENTS:'Тёплая Компания 4.0 · Замер'};
+  fields[cfg.surveyField]=survey.Survey_ID||survey.ID;if(cfg.stage)fields.STAGE_ID=cfg.stage;
+  if(cfg.phoneField)fields[cfg.phoneField]=survey.Phone||survey['Телефон']||'';
+  if(cfg.addressField)fields[cfg.addressField]=survey['Адрес']||'';
+  if(cfg.workTypeField)fields[cfg.workTypeField]=survey['Вид работ']||'';
+  if(cfg.dateField)fields[cfg.dateField]=opDate_(survey.Date||survey['Дата'])||opToday_();
+  return fields;
+}
+function opBitrixFlatFields_(fields){const payload={};Object.keys(fields).forEach(k=>payload['fields['+k+']']=fields[k]);return payload;}
+function opBitrixSyncMeasurements_(auth){
+  if(!opAdmin_(auth)&&['PARTNER','ENGINEER','MANAGER'].indexOf(opRole_(auth))<0)throw Error('FORBIDDEN_CRM');
+  const cfg=opBitrixConfig_();if(!opBitrixReady_(cfg))throw Error('BITRIX_NOT_CONFIGURED');
+  let pushed=0,pulled=0,created=0;
+  const local=opRows_('Measurements');
+  local.forEach(survey=>{
+    const query={};query['filter[CATEGORY_ID]']=cfg.category;query['filter['+cfg.surveyField+']']=survey.Survey_ID||survey.ID;query['select[0]']='ID';
+    const found=opBitrixCall_(cfg,'crm.deal.list',query),deal=found.result&&found.result[0],fields=opBitrixDealFields_(cfg,survey);
+    if(deal&&deal.ID){const payload=opBitrixFlatFields_(fields);payload.id=deal.ID;opBitrixCall_(cfg,'crm.deal.update',payload);}
+    else opBitrixCall_(cfg,'crm.deal.add',opBitrixFlatFields_(fields));
+    pushed++;
+  });
+  let start=0,pages=0;
+  do{
+    const payload={start:start};payload['filter[CATEGORY_ID]']=cfg.category;
+    ['ID','TITLE','BEGINDATE','DATE_CREATE',cfg.surveyField,cfg.phoneField,cfg.addressField,cfg.workTypeField,cfg.dateField].filter(Boolean).forEach((field,i)=>payload['select['+i+']']=field);
+    const page=opBitrixCall_(cfg,'crm.deal.list',payload),deals=Array.isArray(page.result)?page.result:[];
+    deals.forEach(deal=>{
+      let surveyId=opStr_(deal[cfg.surveyField]).trim(),survey=surveyId?opFind_('Measurements',surveyId):null;
+      if(!survey){surveyId=opId_('SURVEY');const date=opDate_(cfg.dateField?deal[cfg.dateField]:deal.BEGINDATE)||opDate_(deal.DATE_CREATE)||opToday_();
+        const record={ID:surveyId,Survey_ID:surveyId,Date:date,Name:opStr_(deal.TITLE).trim()||'Замер из Bitrix24',Phone:cfg.phoneField?opStr_(deal[cfg.phoneField]):null,Manager_ID:null,Engineer_ID:null,'Дата':date,'Клиент':opStr_(deal.TITLE).trim()||'Замер из Bitrix24','Телефон':cfg.phoneField?opStr_(deal[cfg.phoneField]):null,'Вид работ':cfg.workTypeField?opStr_(deal[cfg.workTypeField]):null,'Комментарий':'Синхронизировано из Bitrix24','Адрес':cfg.addressField?opStr_(deal[cfg.addressField]):null,ConvertedToObject:false,Object_ID:null,Revision:1};
+        opWrite_('Measurements',record);const update={id:deal.ID};update['fields['+cfg.surveyField+']']=surveyId;opBitrixCall_(cfg,'crm.deal.update',update);created++;
+      }else{
+        const fields={Name:opStr_(deal.TITLE).trim()||survey.Name,'Клиент':opStr_(deal.TITLE).trim()||survey['Клиент']};
+        if(cfg.phoneField){fields.Phone=opStr_(deal[cfg.phoneField]);fields['Телефон']=fields.Phone;}if(cfg.addressField)fields['Адрес']=opStr_(deal[cfg.addressField]);if(cfg.workTypeField)fields['Вид работ']=opStr_(deal[cfg.workTypeField]);
+        opWrite_('Measurements',Object.assign({},survey,fields,{Revision:Number(survey.Revision||1)+1}));pulled++;
+      }
+    });
+    start=page.next==null?null:Number(page.next);pages++;
+  }while(start!=null&&pages<10);
+  const at=new Date().toISOString();PropertiesService.getScriptProperties().setProperty('BITRIX_MEASUREMENTS_LAST_SYNC',at);PropertiesService.getScriptProperties().setProperty('OP_DATA_REVISION',Utilities.getUuid());
+  return {ok:true,pushed:pushed,pulled:pulled,created:created,lastSync:at,funnel:'Замеры'};
+}
+
 function opBootstrap_(auth,period){
   const settings=opSettings_();if(settings.MIGRATION_STATUS!=='READY')throw Error('MIGRATION_NOT_READY');
   const range=opPeriod_(period),finance=opFinance_(auth),role=opRole_(auth),allObjects=opRows_('Objects'),objects=opAllowedObjects_(auth,allObjects),ids=new Set(objects.map(o=>o.ID));
@@ -111,10 +200,13 @@ function opBootstrap_(auth,period){
     if(role!=='INSTALLER'){r.contract=opRub_(o.ContractMinor);r.paid=opRub_(paid);r.remaining=o.ContractMinor==null?null:opRub_(o.ContractMinor-paid);}return r;});
   const payments=byObject(opRows_('PaymentSchedule')).map(p=>{const received=income.filter(i=>i.PaymentPlan_ID===p.ID).reduce((n,i)=>n+opIncomeSigned_(i),0),amount=opNumber_(p.AmountMinor),left=amount==null?null:Math.max(0,amount-received),date=opDate_(p.Date||p['Плановая дата']);
     return {id:p.ID,objectId:p.Object_ID,plannedDate:date,plannedAmount:opRub_(amount),actualPaid:opRub_(received),remaining:opRub_(left),stageName:p['Наименование этапа']||p.StageName,status:left==null?'Не заполнено':left===0?'Оплачено':date&&date<opToday_()?'Просрочено':'План',overdueDays:date&&date<opToday_()&&left>0?Math.floor((new Date(opToday_())-new Date(date))/86400000):0};});
+  const workforce=opInstallerAnalytics_(auth,objects,range,employees),bitrix=opBitrixConfig_(),bitrixReady=opBitrixReady_(bitrix);
   const response={ok:true,api:OP.version,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
     scope:{enforced:true,userId:auth.userId},coverage:{from:settings.COVERAGE_FROM,to:settings.COVERAGE_TO,complete:range.from>=settings.COVERAGE_FROM&&range.to<=settings.COVERAGE_TO},
-    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,dailyProgressV1:true,stagePhotoMetaV1:true,personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
+    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,dailyProgressV1:true,stagePhotoMetaV1:true,installerCreateV1:opAdmin_(auth)||role==='PARTNER',installerPaymentsV1:finance,bitrixMeasurementsV1:bitrixReady&&(opAdmin_(auth)||['PARTNER','ENGINEER','MANAGER'].indexOf(role)>=0),personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
+    integrations:{bitrixMeasurements:{configured:bitrixReady,funnel:'Замеры',lastSync:bitrix.lastSync||null}},
     employees:employees.map(r=>({id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind})),
+    installerStats:workforce.stats,installerObjectPay:workforce.objects,
     leads:leads.map(opPublicRow_),surveys:surveys.map(opPublicRow_),techTasks:byObject(opRows_('TechTasks')).map(opPublicRow_),dayPlans:byObject(opRows_('DailyPlans')).filter(r=>r.TechTask_ID).map(opPublicRow_),assignments:byObject(opRows_('Assignments')).map(opPublicRow_),calendar:byObject(opRows_('Calendar')).map(opPublicRow_),media:byObject(opRows_('Media')).map(opPublicRow_),paymentPlan:role==='INSTALLER'?[]:payments,
     payroll:opRows_('SalaryAccruals').filter(r=>full||role==='INSTALLER'&&r.Installer_ID===auth.employeeId).map(opPublicRow_),attention:[],lists:{}};
   if(role==='INSTALLER'){response.assignments=response.assignments.filter(r=>r.Installer_ID===auth.employeeId);response.calendar=response.calendar.filter(r=>r.Installer_ID===auth.employeeId);response.techTasks=response.techTasks.map(r=>({TechTask_ID:r.TechTask_ID,Object_ID:r.Object_ID,'План начала':r['План начала'],'План окончания':r['План окончания'],'Комментарий':r['Комментарий']}));}
@@ -186,8 +278,9 @@ function opDateRequired_(value){const d=opDate_(value);if(!d)throw Error('INVALI
 function opPick_(source,keys){const out={};keys.forEach(k=>{if(source[k]!==undefined)out[k]=source[k];});return out;}
 function opCommand_(auth,body){
   const action=opStr_(body.action),requestId=opRequired_(body.idempotencyKey||body.requestId,'REQUEST_ID_REQUIRED');if(requestId.length>120)throw Error('INVALID_REQUEST_ID');
-  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','attention','quantity','unit','unitPrice','paymentStatus','accountable','installerId','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','dayPlanId','actualQty','mimeType','mediaType','stage'];
+  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','attention','quantity','unit','unitPrice','paymentStatus','accountable','installerId','name','paymentType','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','dayPlanId','actualQty','mimeType','mediaType','stage'];
   const data=opPick_(body,allowed);if(action==='uploadMedia')data.contentHash=opHash_(opStr_(body.base64));
+  if(action==='syncBitrixMeasurements')return opBitrixSyncMeasurements_(auth);
   const hash=opHash_(opCanonical_({action:action,data:data})),key=auth.userId+':'+requestId;
   const old=opRows_('AuditLog').find(r=>r.Transaction_ID===key);if(old){if(old.RequestHash!==hash)throw Error('IDEMPOTENCY_CONFLICT');return Object.assign({ok:true},typeof old.ResultJSON==='string'?JSON.parse(old.ResultJSON):old.ResultJSON);}
   let changes=[],result={},reason=opStr_(data.reason),now=new Date().toISOString();
@@ -231,6 +324,23 @@ function opCommand_(auth,body){
     if(data.status!==undefined){if(['Запланирован','Подтверждён','Подтверждён клиентом','Готов к монтажу','В работе','Приостановлен','Работы завершены','Завершён','Закрыт 100%','Отменён'].indexOf(data.status)<0)throw Error('INVALID_STATUS');if(data.status==='В работе')opReady_(object.ID);fields.Status=data.status;if(data.status==='В работе'&&!object.ActualStart)fields.ActualStart=opToday_();if(['Работы завершены','Завершён','Закрыт 100%'].indexOf(data.status)>=0&&!object.ActualEnd)fields.ActualEnd=opToday_();}
     if(data.client!==undefined||data.phone!==undefined){const client=opFind_('Clients',object.Client_ID);if(!client)throw Error('CLIENT_NOT_FOUND');const cf={};if(data.client!==undefined)cf.Name=opRequired_(data.client);if(data.phone!==undefined)cf.Phone=opStr_(data.phone);changes.push(opChange_('Clients',client,cf));}
     changes.push(opChange_('Objects',object,fields));result={id:object.ID,revision:Number(object.Revision||1)+1};
+  }else if(action==='createInstaller'){
+    if(!opAdmin_(auth)&&opRole_(auth)!=='PARTNER')throw Error('FORBIDDEN_EMPLOYEES');
+    const name=opRequired_(data.name),phone=opStr_(data.phone).trim();
+    if(opRows_('Employees').some(e=>opStr_(e.Name).trim().toLowerCase()===name.toLowerCase()&&(phone===''||opStr_(e.Phone).trim()===phone)))throw Error('EMPLOYEE_ALREADY_EXISTS');
+    const id=opId_('EMP');changes.push(opChange_('Employees',null,{ID:id,Name:name,Phone:phone||null,Role:'INSTALLER',Active:true,WorkerKind:'STAFF'}));result={id:id};
+  }else if(action==='payInstaller'){
+    if(!opFinance_(auth))throw Error('FORBIDDEN_FINANCE');
+    const installer=opFind_('Employees',opRequired_(data.installerId));if(!installer)throw Error('INSTALLER_NOT_FOUND');
+    const object=opObjectAccess_(auth,opRequired_(data.objectId)),assignments=opRows_('Assignments').filter(a=>a.Installer_ID===installer.ID&&a.Object_ID===object.ID);
+    if(!assignments.length)throw Error('ASSIGNMENT_NOT_FOUND');
+    const agreed=assignments.reduce((n,a)=>n+opAssignmentAmount_(a),0),paid=opPayrollPaid_(installer.ID,object.ID),amount=Number(data.amount),remaining=Math.max(0,agreed-paid);
+    if(!Number.isFinite(amount)||amount<=0||amount>remaining)throw Error('PAYMENT_EXCEEDS_REMAINING');
+    const paymentType=data.paymentType==='FINAL'?'FINAL':'PARTIAL';if(paymentType==='FINAL'&&(!opClosedStatus_(object.Status)||Math.abs(amount-remaining)>0.009))throw Error('FINAL_PAYMENT_REQUIRES_CLOSED_OBJECT');
+    const rows=opRows_('SalaryAccruals').filter(r=>r.Installer_ID===installer.ID&&r.Object_ID===object.ID),row=rows[0];
+    if(row)changes.push(opChange_('SalaryAccruals',row,{'Выплачено':(Number(row['Выплачено'])||0)+amount}));
+    else{const id=opId_('SAL');changes.push(opChange_('SalaryAccruals',null,{ID:id,Accrual_ID:id,Object_ID:object.ID,Installer_ID:installer.ID,'Монтажник':installer.Name||installer['ФИО'],'Начислено':opClosedStatus_(object.Status)?agreed:0,'Выплачено':amount}));}
+    result={installerId:installer.ID,objectId:object.ID,paid:paid+amount,remaining:Math.max(0,remaining-amount),paymentType:paymentType};
   }else if(action==='addLead'||action==='addSurvey'){
     if(!opAdmin_(auth)&&['PARTNER','ENGINEER','MANAGER'].indexOf(opRole_(auth))<0)throw Error('FORBIDDEN_CRM');const table=action==='addLead'?'Leads':'Measurements',id=opId_(action==='addLead'?'LEAD':'SURVEY'),date=opDateRequired_(data.date||opToday_());
     const record={ID:id,Date:date,Name:opRequired_(data.client),Phone:data.phone||null,Manager_ID:opRole_(auth)==='MANAGER'?auth.userId:null,Engineer_ID:opRole_(auth)==='ENGINEER'?auth.userId:null,'Дата':date,'Клиент':data.client,'Телефон':data.phone||null,'Вид работ':data.workType||null,'Комментарий':data.comment||null};
