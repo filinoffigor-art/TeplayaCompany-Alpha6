@@ -26,7 +26,7 @@ function opStr_(x){return x==null?'':String(x);}
 function opYes_(x){return x===true||/^(true|да|1)$/i.test(opStr_(x));}
 function opRole_(a){return opStr_(a.role).trim().toUpperCase();}
 function opAdmin_(a){return ['OWNER','ADMIN'].indexOf(opRole_(a))>=0;}
-function opFinance_(a){return opAdmin_(a)||(opRole_(a)==='PARTNER'&&a.finance===true);}
+function opFinance_(a){const role=opRole_(a);return role==='OWNER'||((role==='ADMIN'||role==='PARTNER')&&a.finance===true);}
 function opRequired_(x,code){const s=opStr_(x).trim();if(!s)throw Error(code||'REQUIRED_FIELD');return s;}
 function opMinor_(x){const n=Number(x);if(x==null||x===''||!Number.isFinite(n)||n<=0||!Number.isSafeInteger(Math.round(n*100)))throw Error('INVALID_AMOUNT');return Math.round(n*100);}
 function opRub_(n){return Number.isSafeInteger(n)?n/100:null;}
@@ -222,10 +222,12 @@ function opTransaction_(auth,key,hash,action,reason,changes,result){
   opWrite_('AuditLog',event);opApplyEvent_(event);return result;
 }
 function opPair_(body){
-  const user=opFind_('Users',opRequired_(body.userId,'AUTH_REQUIRED')),device=opRequired_(body.deviceId,'AUTH_REQUIRED');
-  const cache=CacheService.getScriptCache(),key='pair:'+opHash_(body.userId+':'+device),attempt=Number(cache.get(key)||0);
+  const device=opRequired_(body.deviceId,'AUTH_REQUIRED'),pairingCode=opRequired_(body.pairingCode,'PAIRING_DENIED');
+  const userId=opStr_(body.userId).trim(),users=opRows_('Users').filter(u=>opYes_(u.Active)&&u.PairingCode&&opEqualSecret_(u.PairingCode,pairingCode));
+  const user=userId?users.find(u=>String(u.ID)===userId):(users.length===1?users[0]:null);
+  const cache=CacheService.getScriptCache(),key='pair:'+opHash_((userId||'code-only')+':'+device),attempt=Number(cache.get(key)||0);
   if(attempt>=10)throw Error('PAIRING_RATE_LIMIT');cache.put(key,String(attempt+1),300);
-  if(!user||!opYes_(user.Active)||!user.PairingCode||!opEqualSecret_(user.PairingCode,body.pairingCode))throw Error('PAIRING_DENIED');
+  if(!user)throw Error('PAIRING_DENIED');
   const token=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
   opWrite_('Users',Object.assign({},user,{PairingCode:user.PairingCode,TokenHash:opHash_(token),Device_ID:device,UpdatedAt:new Date().toISOString()}));
   return {ok:true,userId:user.ID,name:user.Name,role:user.Role,token:token};
