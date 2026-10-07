@@ -46,6 +46,32 @@ test('deleted transfer no longer affects accountable balances',()=>{
 test('journal resumes interrupted write without double applying',()=>{failTable='Expenses';const b={amount:15,article:'Материалы',description:'Paint',accountable:'P1',paymentStatus:'Оплачено',method:'Наличные'};assert.throws(()=>command('addExpense',b),/SIMULATED_INTERRUPTION/);assert.equal(context.opRows_('AuditLog')[0].CommitState,'PREPARED');context.opRecover_();command('addExpense',b);assert.equal(context.opRows_('Expenses').length,1);assert.equal(context.opRows_('AuditLog')[0].CommitState,'COMMITTED');});
 test('untrusted auth fields never enter audit payload',()=>{command('transfer',{from:'P1',to:'P2',amount:1,token:'SECRET_TOKEN',pairingCode:'SECRET_CODE',role:'OWNER'});assert(!JSON.stringify(tables.AuditLog.data).includes('SECRET'));});
 test('manager cannot write company finances',()=>{assert.throws(()=>command('transfer',{from:'P1',to:'P2',amount:1},{userId:'M1',role:'MANAGER',finance:true}),/FORBIDDEN_FINANCE/);});
+test('owner can create installer without exposing a technical setup flow',()=>{
+ const result=command('createInstaller',{name:'Installer New',phone:'+79990000000'});assert(result.id);
+ const employee=context.opRows_('Employees').find(r=>r.ID===result.id);assert.equal(employee.Name,'Installer New');assert.equal(employee.Role,'INSTALLER');assert.equal(employee.WorkerKind,'STAFF');
+});
+test('partial installer payment is allowed before object close and cannot exceed object remainder',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,WorkerKind:'STAFF'}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','Согласованная сумма':60000}]);
+ tables.SalaryAccruals=sheet('SalaryAccruals',[]);vm.runInContext('opTables_={}',context);
+ const paid=context.opCommand_(owner,{action:'payInstaller',requestId:'PAY-INSTALLER-1',installerId:'I1',objectId:'O1',amount:20000,paymentType:'PARTIAL'});
+ assert.equal(paid.remaining,40000);const row=context.opRows_('SalaryAccruals')[0];assert.equal(row['Выплачено'],20000);assert.equal(row['Начислено'],0);
+ assert.throws(()=>context.opCommand_(owner,{action:'payInstaller',requestId:'PAY-INSTALLER-2',installerId:'I1',objectId:'O1',amount:50000,paymentType:'PARTIAL'}),/PAYMENT_EXCEEDS_REMAINING/);
+ assert.throws(()=>context.opCommand_(owner,{action:'payInstaller',requestId:'PAY-INSTALLER-3',installerId:'I1',objectId:'O1',amount:40000,paymentType:'FINAL'}),/FINAL_PAYMENT_REQUIRES_CLOSED_OBJECT/);
+});
+test('installer stats count distinct worked days and closed-object earnings in selected period',()=>{
+ tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,WorkerKind:'STAFF'}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','Согласованная сумма':60000,'Назначен с':'2026-09-01','Назначен до':'2026-09-30'}]);
+ tables.Objects=sheet('Objects',[{ID:'O1',Client_ID:'C1',Address:'Object 1',Status:'Закрыт 100%',ActualEnd:'2026-09-20',ContractMinor:100000,Revision:1}]);
+ tables.DailyPlans=sheet('DailyPlans',[
+  {ID:'D1',DayPlan_ID:'D1',TechTask_ID:'TZ1',Object_ID:'O1','Дата':'2026-09-10','Факт объём':20},
+  {ID:'D2',DayPlan_ID:'D2',TechTask_ID:'TZ1',Object_ID:'O1','Дата':'2026-09-10','Факт объём':15},
+  {ID:'D3',DayPlan_ID:'D3',TechTask_ID:'TZ1',Object_ID:'O1','Дата':'2026-09-11','Факт объём':10}
+ ]);vm.runInContext('opTables_={}',context);context.opToday_=()=> '2026-09-23';
+ const result=context.opBootstrap_(owner,'Месяц'),stat=result.installerStats.find(x=>x.installerId==='I1');
+ assert.equal(stat.workDays,2);assert.equal(stat.closedObjects,1);assert.equal(stat.earned,60000);
+ assert.equal(result.capabilities.bitrixMeasurementsV1,false);
+});
 test('manager bootstrap is scoped and excludes company finance',()=>{const r=context.opBootstrap_({userId:'M1',role:'MANAGER',employeeId:'M1'},'Месяц');assert.equal(r.objects.length,1);assert.equal(r.objects[0].id,'O1');assert.equal(r.accountable,undefined);assert.equal(r.income,undefined);assert.equal(r.kpis.expenses,undefined);assert(!JSON.stringify(r).includes('Private other client'));});
 test('installer bootstrap excludes contract amounts and other wages',()=>{tables.Assignments=sheet('Assignments',[{ID:'A1',Object_ID:'O1',Installer_ID:'I1'},{ID:'A2',Object_ID:'O1',Installer_ID:'I2'}]);tables.SalaryAccruals=sheet('SalaryAccruals',[{ID:'S1',Installer_ID:'I1',Начислено:100},{ID:'S2',Installer_ID:'I2',Начислено:999999}]);const r=context.opBootstrap_({userId:'U1',role:'INSTALLER',employeeId:'I1'},'Месяц');assert.equal(r.objects.length,1);assert.equal(r.objects[0].contract,undefined);assert.equal(r.assignments.length,1);assert.equal(r.payroll.length,1);assert(!JSON.stringify(r).includes('999999'));});
 test('source workday does not masquerade as a technical task',()=>{tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',Object_ID:'O1',Date:'2026-09-01'}]);const r=context.opBootstrap_(owner,'Месяц');assert.equal(r.dayPlans.length,0);});
