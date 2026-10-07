@@ -46,3 +46,20 @@
 - Производственный календарь показывает переданные диапазоны; контроль конфликтов бригад/фактических дней и новые кадровые события требует сервера.
 - Настройка масштаба текста/контраста/подсказок, редактирование пользователей/ролей/справочников, backup UI, Bitrix24 sync пока не подключены.
 - Реальные sync/mutation, фото и PDF на пользовательском устройстве не тестировались; тесты CI офлайн и не записывают production Sheets. Скриншоты с пометкой QA используют фикстуры только в отдельном test APK.
+
+
+## Кандидат на приёмку — 07.10.2026
+
+Проверенный head: `05ad6d9c952d3c876adf5cf6c3754c255bb146c9`. GitHub Actions run `37572346339` — полностью зелёный.
+
+- [x] Централизованный server-side RBAC добавлен в `opRequireAction_`: финансовые, кадровые, объектные, CRM, media и ТЗ-команды проверяются сервером до выполнения.
+- [x] Row scoping усилен: инженер не может перемещать монтажника с недоступного объекта; manager bootstrap не отдаёт суммы оплаты монтажников.
+- [x] `saveTechTaskV2` реализован с optimistic revision и сохранением существующих `TechTask_ID`, `Assignment_ID`, `DayPlan_ID`, `PaymentPlan_ID` и связанного Calendar. Молчаливое удаление существующих child-записей запрещено.
+- [x] Android показывает кнопку «Редактировать ТЗ» только при capability `techTaskEditsV2` и допустимой роли; существующие строки редактируются по ID, причина изменения обязательна.
+- [x] Backend/migration contracts, Android compilation, unit tests, lint, APK build, migration/certificate classification и emulator QA 412×915 прошли.
+- [x] QA evidence: `STAGE1_SMOKE_PASSED`, side-by-side install `ru.teplayakompaniya.tk4` + `ru.teplayakompaniya.tk4.qa`, crash log пустой.
+- [ ] Серверный код этого кандидата ещё не развёрнут в отдельный QA Apps Script deployment. Текущий Android `API_URL` нельзя считать безопасной QA-средой только по имени сборки.
+- [ ] Нужна финальная приёмка на телефоне: QA-DEMO навигация/4 роли; затем — после отдельного QA deployment — create/edit/restart/readback в QA Google Sheets.
+- [ ] Только после этих двух пунктов ставится отметка `STAGE 1 — ACCEPTED` и начинается Stage 2.
+
+Отдельная таблица `Тёплая Компания 4.0 — QA DEMO — 06.10.2026` существует, но наличие таблицы само по себе не означает, что текущий Apps Script `/exec` развёрнут на неё. Production/LIVE в рамках этого кандидата не переключались.
