@@ -262,10 +262,17 @@ function opTransaction_(auth,key,hash,action,reason,changes,result){
   opWrite_('AuditLog',event);opApplyEvent_(event);return result;
 }
 function opPair_(body){
-  const user=opFind_('Users',opRequired_(body.userId,'AUTH_REQUIRED')),device=opRequired_(body.deviceId,'AUTH_REQUIRED');
-  const cache=CacheService.getScriptCache(),key='pair:'+opHash_(body.userId+':'+device),attempt=Number(cache.get(key)||0);
+  const device=opRequired_(body.deviceId,'AUTH_REQUIRED'),code=opRequired_(body.pairingCode,'PAIRING_CODE_REQUIRED'),requestedName=opStr_(body.userName).trim();
+  const cache=CacheService.getScriptCache(),key='pair:'+opHash_(device+':'+requestedName),attempt=Number(cache.get(key)||0);
   if(attempt>=10)throw Error('PAIRING_RATE_LIMIT');cache.put(key,String(attempt+1),300);
-  if(!user||!opYes_(user.Active)||!user.PairingCode||!opEqualSecret_(user.PairingCode,body.pairingCode))throw Error('PAIRING_DENIED');
+  let user=null;
+  if(body.userId)user=opFind_('Users',body.userId);
+  if(!user){
+    const matches=opRows_('Users').filter(u=>opYes_(u.Active)&&u.PairingCode&&opEqualSecret_(u.PairingCode,code)&&(!requestedName||opStr_(u.Name).trim()===requestedName));
+    if(matches.length>1)throw Error('PAIRING_AMBIGUOUS');
+    user=matches[0]||null;
+  }
+  if(!user||!opYes_(user.Active)||!user.PairingCode||!opEqualSecret_(user.PairingCode,code))throw Error('PAIRING_DENIED');
   const token=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
   opWrite_('Users',Object.assign({},user,{PairingCode:null,TokenHash:opHash_(token),Device_ID:device,UpdatedAt:new Date().toISOString()}));
   return {ok:true,userId:user.ID,name:user.Name,role:user.Role,token:token};
