@@ -124,7 +124,7 @@ function opAssignmentDto_(r,payroll){
   const paymentType=r.Payment_Type||null;
   const remaining=paymentType==='FIXED'?unallocated:(accruedMinor||paidMinor?Math.max(0,accruedMinor-paidMinor):0);
   return {
-    ID:r.ID,Assignment_ID:r.Assignment_ID||r.ID,Installer_ID:r.Installer_ID,Object_ID:r.Object_ID,TechTask_ID:r.TechTask_ID||null,
+    ID:r.ID,Assignment_ID:r.Assignment_ID||r.ID,Installer_ID:r.Installer_ID,Object_ID:r.Object_ID,TechTask_ID:r.TechTask_ID||null,installerName:r['Монтажник']||null,agreedAmount:opNumber_(r['Согласованная сумма']),['Монтажник']:r['Монтажник']||null,['Согласованная сумма']:opNumber_(r['Согласованная сумма']),
     startDate:opDate_(r.Period_Start||r['Назначен с']),endDate:opDate_(r.Period_End||r['Назначен до']),
     actualDays:Number(r.Actual_Days||0),paymentType:paymentType,dailyRate:opRub_(opNumber_(r.DailyRateMinor)),
     accrued:opRub_(accruedMinor),paid:opRub_(paidMinor),remaining:opRub_(remaining),
@@ -158,11 +158,11 @@ function opBootstrap_(auth,period){
     const r={id:o.ID,clientId:o.Client_ID,address:o.Address,client:client.Name,phone:client.Phone,workType:o.WorkType,status:o.Status,progress:opNumber_(o.Progress),planStart:opDate_(o.PlanStart),planEnd:opDate_(o.PlanEnd),factStart:opDate_(o.ActualStart),factEnd:opDate_(o.ActualEnd),engineer:o.Engineer_ID,responsible:o.LegacyResponsible,brigade:o.LegacyCrew,revision:o.Revision||1};
     if(role!=='INSTALLER'){r.contract=opRub_(o.ContractMinor);r.paid=opRub_(paid);r.remaining=o.ContractMinor==null?null:opRub_(o.ContractMinor-paid);}return r;});
   const payments=byObject(opRows_('PaymentSchedule')).map(p=>{const received=income.filter(i=>i.PaymentPlan_ID===p.ID).reduce((n,i)=>n+opIncomeSigned_(i),0),amount=opNumber_(p.AmountMinor),left=amount==null?null:Math.max(0,amount-received),date=opDate_(p.Date||p['Плановая дата']);
-    return {id:p.ID,objectId:p.Object_ID,plannedDate:date,plannedAmount:opRub_(amount),actualPaid:opRub_(received),remaining:opRub_(left),stageName:p['Наименование этапа']||p.StageName,status:left==null?'Не заполнено':left===0?'Оплачено':date&&date<opToday_()?'Просрочено':'План',overdueDays:date&&date<opToday_()&&left>0?Math.floor((new Date(opToday_())-new Date(date))/86400000):0};});
+    return {id:p.ID,objectId:p.Object_ID,techTaskId:p.TechTask_ID||null,revision:Number(p.Revision||1),plannedDate:date,plannedAmount:opRub_(amount),actualPaid:opRub_(received),remaining:opRub_(left),stageName:p['Наименование этапа']||p.StageName,status:left==null?'Не заполнено':left===0?'Оплачено':date&&date<opToday_()?'Просрочено':'План',overdueDays:date&&date<opToday_()&&left>0?Math.floor((new Date(opToday_())-new Date(date))/86400000):0};});
   const payrollRows=opRows_('SalaryAccruals'),workforceWrite=(opAdmin_(auth)||role==='PARTNER'||role==='ENGINEER')&&opAssignmentSchemaReady_();
   const response={ok:true,api:OP.version,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
     scope:{enforced:true,userId:auth.userId},coverage:{from:settings.COVERAGE_FROM,to:settings.COVERAGE_TO,complete:range.from>=settings.COVERAGE_FROM&&range.to<=settings.COVERAGE_TO},
-    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,personalReimbursementsV1:finance&&people.length>1,assignmentPeriodsV1:workforceWrite,hiredWorkersV1:workforceWrite&&opHiredWorkerSchemaReady_()},kpis:kpis,objects:publicObjects,
+    capabilities:{rbacV1:true,financialEditsV1:finance,financialDeletesV1:finance,personalReimbursementsV1:finance&&people.length>1,assignmentPeriodsV1:workforceWrite,hiredWorkersV1:workforceWrite&&opHiredWorkerSchemaReady_(),techTaskEditsV2:(opAdmin_(auth)||role==='PARTNER'||role==='ENGINEER')},kpis:kpis,objects:publicObjects,
     employees:employees.map(r=>({id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind,revision:Number(r.Revision||1)})),
     leads:leads.map(opPublicRow_),surveys:surveys.map(opPublicRow_),techTasks:byObject(opRows_('TechTasks')).map(opPublicRow_),dayPlans:byObject(opRows_('DailyPlans')).filter(r=>r.TechTask_ID).map(opPublicRow_),assignments:byObject(opRows_('Assignments')).map(r=>opAssignmentDto_(r,payrollRows)),calendar:byObject(opRows_('Calendar')).map(opPublicRow_),media:byObject(opRows_('Media')).map(opPublicRow_),paymentPlan:role==='INSTALLER'?[]:payments,
     payroll:payrollRows.filter(r=>full||role==='INSTALLER'&&r.Installer_ID===auth.employeeId).map(opPublicRow_),attention:[],lists:{}};
@@ -232,11 +232,23 @@ function opPair_(body){
 function opPerson_(value){const rows=opRows_('AccountablePersons'),byId=rows.find(r=>r.ID===value);if(byId)return byId;
   const matches=rows.filter(r=>r.Name===value);if(matches.length!==1)throw Error('ACCOUNTABLE_ID_REQUIRED');return matches[0];}
 function opObjectAccess_(auth,id){const o=opAllowedObjects_(auth,opRows_('Objects')).find(r=>r.ID===id);if(!o)throw Error('OBJECT_NOT_FOUND');return o;}
+function opRequireAction_(auth,action){
+  const role=opRole_(auth),allow=roles=>opAdmin_(auth)||roles.indexOf(role)>=0;
+  if(['addIncome','addExpense','transfer','editFinance','deleteFinance','reimbursePersonalFunds'].indexOf(action)>=0){if(!opFinance_(auth))throw Error('FORBIDDEN_FINANCE');return;}
+  if(['moveInstaller','createHiredWorkerDay','addHiredWorkerDay'].indexOf(action)>=0){if(!allow(['PARTNER','ENGINEER']))throw Error('FORBIDDEN_WORKFORCE');return;}
+  if(action==='promoteHiredWorker'){if(!opAdmin_(auth))throw Error('FORBIDDEN_ADMIN');return;}
+  if(['createObject','convertSurveyToObject'].indexOf(action)>=0){if(!allow(['PARTNER','ENGINEER','MANAGER']))throw Error('FORBIDDEN_OBJECTS');return;}
+  if(['updateObject','updateObjectStatus'].indexOf(action)>=0){if(!allow(['PARTNER','ENGINEER']))throw Error('FORBIDDEN_OBJECTS');return;}
+  if(['addLead','addSurvey'].indexOf(action)>=0){if(!allow(['PARTNER','ENGINEER','MANAGER']))throw Error('FORBIDDEN_CRM');return;}
+  if(action==='uploadMedia'){if(!allow(['PARTNER','ENGINEER','INSTALLER']))throw Error('FORBIDDEN_MEDIA');return;}
+  if(['saveTechTask','saveTechTaskV2'].indexOf(action)>=0){if(!allow(['PARTNER','ENGINEER']))throw Error('FORBIDDEN_TECH');return;}
+  throw Error('ACTION_NOT_SUPPORTED');
+}
 function opChange_(table,before,fields){return {table:table,before:before||null,after:Object.assign({},before||{},fields,{Revision:before?Number(before.Revision||1)+1:1})};}
 function opDateRequired_(value){const d=opDate_(value);if(!d)throw Error('INVALID_DATE');return d;}
 function opPick_(source,keys){const out={};keys.forEach(k=>{if(source[k]!==undefined)out[k]=source[k];});return out;}
 function opCommand_(auth,body){
-  const action=opStr_(body.action),requestId=opRequired_(body.idempotencyKey||body.requestId,'REQUEST_ID_REQUIRED');if(requestId.length>120)throw Error('INVALID_REQUEST_ID');
+  const action=opStr_(body.action),requestId=opRequired_(body.idempotencyKey||body.requestId,'REQUEST_ID_REQUIRED');if(requestId.length>120)throw Error('INVALID_REQUEST_ID');opRequireAction_(auth,action);
   const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','quantity','unit','unitPrice','paymentStatus','accountable','installerId','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','mimeType','mediaType','stage','Accountable_ID','Funding_Account_ID','Installer_ID','Assignment_ID','Object_ID','transitionDate','returnDate','paymentType','dailyRate','accrueNow','deferAmount','closeObligation','name','workDate','actualDays'];
   const data=opPick_(body,allowed);if(action==='uploadMedia')data.contentHash=opHash_(opStr_(body.base64));
   const hash=opHash_(opCanonical_({action:action,data:data})),key=auth.userId+':'+requestId;
@@ -277,6 +289,7 @@ function opCommand_(auth,body){
     reason=opRequired_(data.reason,'MOVE_REASON_REQUIRED');
     const installer=opFind_('Employees',opRequired_(data.Installer_ID,'INSTALLER_ID_REQUIRED'));
     const source=opFind_('Assignments',opRequired_(data.Assignment_ID,'ASSIGNMENT_ID_REQUIRED'));
+    if(source)opObjectAccess_(auth,source.Object_ID);
     const target=opObjectAccess_(auth,opRequired_(data.Object_ID,'OBJECT_ID_REQUIRED'));
     if(!installer)throw Error('INSTALLER_NOT_FOUND');
     if(!source||source.Installer_ID!==installer.ID)throw Error('ASSIGNMENT_NOT_FOUND');
@@ -409,6 +422,8 @@ function opCommand_(auth,body){
     if(files.hasNext()){file=files.next();if(opHash_(Utilities.base64Encode(file.getBlob().getBytes()))!==data.contentHash)throw Error('IDEMPOTENCY_CONFLICT');}
     else file=folder.createFile(Utilities.newBlob(bytes,data.mimeType,name));
     const id=opId_('MEDIA');changes.push(opChange_('Media',null,{ID:id,Media_ID:id,Object_ID:object.ID,Installer_ID:opRole_(auth)==='INSTALLER'?auth.employeeId:null,'Дата':opToday_(),'Тип':data.mediaType||'Фото','Этап':data.stage||null,Drive_File_ID:file.getId(),URL:file.getUrl(),'Комментарий':data.comment||null,UploadedBy:auth.userId,CreatedAt:now}));result={id:id,url:file.getUrl()};
+  }else if(action==='saveTechTaskV2'){
+    const task=opPatchTask_(auth,data);changes=task.changes;result=task.result;
   }else if(action==='saveTechTask'){
     const task=opNewTask_(auth,data);changes=task.changes;result=task.result;
   }else throw Error('ACTION_NOT_SUPPORTED');
@@ -430,6 +445,63 @@ function opNewTask_(auth,data){
   payments.forEach((p,i)=>{const pid=opId_('PAY'),date=opDateRequired_(p.plannedDate),amount=opMinor_(p.plannedAmount);changes.push(opChange_('PaymentSchedule',null,{ID:pid,PaymentPlan_ID:pid,TechTask_ID:id,Object_ID:object.ID,Date:date,AmountMinor:amount,'Этап №':i+1,'Наименование этапа':opRequired_(p.stageName),'Плановая дата':date,'Плановая сумма':opRub_(amount)}));});
   return {changes:changes,result:{id:id,revision:1}};
 }
+
+function opChildId_(row,keys){for(const key of keys){const value=opStr_(row&&row[key]).trim();if(value)return value;}return '';}
+function opAssertChildRevision_(row,before){if(Number(row.expectedRevision)!==Number(before.Revision||1))throw Error('REVISION_CONFLICT');}
+function opPatchTask_(auth,data){
+  const task=opFind_('TechTasks',opRequired_(data.techTaskId,'TECH_TASK_ID_REQUIRED'));if(!task)throw Error('TECH_TASK_NOT_FOUND');
+  const object=opObjectAccess_(auth,task.Object_ID);if(Number(data.expectedRevision)!==Number(task.Revision||1))throw Error('REVISION_CONFLICT');
+  opRequired_(data.reason,'TECH_TASK_EDIT_REASON_REQUIRED');
+  const start=opDateRequired_(data.planStart||task['План начала']),end=opDateRequired_(data.planEnd||task['План окончания']);if(end<start)throw Error('INVALID_DATE_RANGE');
+  const workers=data.assignments,days=data.days,payments=data.payments;if(!Array.isArray(workers)||!workers.length||!Array.isArray(days)||!days.length||!Array.isArray(payments))throw Error('TASK_DETAILS_REQUIRED');
+  const changes=[opChange_('TechTasks',task,{'Статус ТЗ':data.materialsReady?'Готово':'Черновик','План начала':start,'План окончания':end,'Материалы готовы':!!data.materialsReady,'Комментарий':data.comment||null,'Технология':data.technology||task['Технология']||null})];
+
+  const editableAssignments=opRows_('Assignments').filter(r=>r.TechTask_ID===task.ID&&!r.Closed_At&&r['Статус']!=='Перемещён');
+  const suppliedAssignmentIds=new Set(workers.map(w=>opChildId_(w,['assignmentId','Assignment_ID','id'])).filter(Boolean));
+  if(editableAssignments.some(r=>!suppliedAssignmentIds.has(r.ID)))throw Error('CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE');
+  const workerIds=new Set();
+  workers.forEach(w=>{
+    const employee=opFind_('Employees',opRequired_(w.installerId,'INSTALLER_ID_REQUIRED'));if(!employee||workerIds.has(employee.ID))throw Error('INVALID_INSTALLER');workerIds.add(employee.ID);
+    const childId=opChildId_(w,['assignmentId','Assignment_ID','id']),amount=opRub_(opMinor_(w.agreedAmount));
+    if(childId){
+      const before=editableAssignments.find(r=>r.ID===childId);if(!before||before.Installer_ID!==employee.ID)throw Error('ASSIGNMENT_NOT_FOUND');opAssertChildRevision_(w,before);
+      changes.push(opChange_('Assignments',before,{'Согласованная сумма':amount,'Назначен с':start,'Назначен до':end,Period_Start:start,Period_End:end}));
+      const calendar=opRows_('Calendar').find(r=>r.Assignment_ID===before.ID)||(opRows_('Calendar').find(r=>r.TechTask_ID===task.ID&&r.Installer_ID===employee.ID&&r['Статус']!=='Перемещён'));
+      if(calendar)changes.push(opChange_('Calendar',calendar,{Assignment_ID:before.ID,'План начало':start,'План конец':end,Period_Start:start,Period_End:end}));
+    }else{
+      const aid=opId_('ASN');changes.push(opChange_('Assignments',null,{ID:aid,Assignment_ID:aid,TechTask_ID:task.ID,Object_ID:object.ID,Installer_ID:employee.ID,'Монтажник':employee.Name||employee['ФИО'],'Согласованная сумма':amount,'Назначен с':start,'Назначен до':end,Period_Start:start,Period_End:end,'Статус':'Назначен'}));
+      const cid=opId_('CAL');changes.push(opChange_('Calendar',null,{ID:cid,Calendar_ID:cid,Assignment_ID:aid,Object_ID:object.ID,TechTask_ID:task.ID,Installer_ID:employee.ID,'Монтажник':employee.Name||employee['ФИО'],'План начало':start,'План конец':end,Period_Start:start,Period_End:end,'Статус':'Подтверждён'}));
+    }
+  });
+
+  const existingDays=opRows_('DailyPlans').filter(r=>r.TechTask_ID===task.ID),suppliedDayIds=new Set(days.map(d=>opChildId_(d,['dayPlanId','DayPlan_ID','id'])).filter(Boolean));
+  if(existingDays.some(r=>!suppliedDayIds.has(r.ID)))throw Error('CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE');
+  days.forEach((d,i)=>{
+    const date=opDateRequired_(d.date);if(date<start||date>end)throw Error('STAGE_OUTSIDE_OBJECT_DATES');
+    const fields={'День №':Number(d.dayNo)||i+1,'Дата':date,'Задача':opRequired_(d.task),'Ед. изм.':opRequired_(d.unit),'План объём':opRub_(opMinor_(d.plannedQty)),'Статус':d.status||'План'};
+    const childId=opChildId_(d,['dayPlanId','DayPlan_ID','id']);
+    if(childId){const before=existingDays.find(r=>r.ID===childId);if(!before)throw Error('DAY_PLAN_NOT_FOUND');opAssertChildRevision_(d,before);changes.push(opChange_('DailyPlans',before,fields));}
+    else{const did=opId_('DAY');changes.push(opChange_('DailyPlans',null,Object.assign({ID:did,DayPlan_ID:did,TechTask_ID:task.ID,Object_ID:object.ID},fields)));}
+  });
+
+  const existingPayments=opRows_('PaymentSchedule').filter(r=>r.TechTask_ID===task.ID),suppliedPaymentIds=new Set(payments.map(p=>opChildId_(p,['paymentPlanId','PaymentPlan_ID','id'])).filter(Boolean));
+  if(existingPayments.some(r=>!suppliedPaymentIds.has(r.ID)))throw Error('CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE');
+  const income=opRows_('Income').filter(r=>r.Object_ID===object.ID),existingPaymentIds=new Set(existingPayments.map(r=>r.ID));
+  const totalReceived=income.reduce((n,r)=>n+opIncomeSigned_(r),0),linkedReceived=income.filter(r=>existingPaymentIds.has(r.PaymentPlan_ID)).reduce((n,r)=>n+opIncomeSigned_(r),0);
+  let plannedTotal=0;
+  payments.forEach((p,i)=>{
+    const date=opDateRequired_(p.plannedDate),amount=opMinor_(p.plannedAmount);plannedTotal+=amount;
+    const childId=opChildId_(p,['paymentPlanId','PaymentPlan_ID','id']),fields={Date:date,AmountMinor:amount,'Этап №':Number(p.stageNo)||i+1,'Наименование этапа':opRequired_(p.stageName),'Плановая дата':date,'Плановая сумма':opRub_(amount)};
+    if(childId){
+      const before=existingPayments.find(r=>r.ID===childId);if(!before)throw Error('PAYMENT_PLAN_NOT_FOUND');opAssertChildRevision_(p,before);
+      const paid=income.filter(r=>r.PaymentPlan_ID===before.ID).reduce((n,r)=>n+opIncomeSigned_(r),0);if(amount<paid)throw Error('PAYMENT_PLAN_BELOW_RECEIVED');
+      changes.push(opChange_('PaymentSchedule',before,fields));
+    }else{const pid=opId_('PAY');changes.push(opChange_('PaymentSchedule',null,Object.assign({ID:pid,PaymentPlan_ID:pid,TechTask_ID:task.ID,Object_ID:object.ID},fields)));}
+  });
+  const requiredPlan=Number.isSafeInteger(object.ContractMinor)?Math.max(0,object.ContractMinor-(totalReceived-linkedReceived)):null;if(requiredPlan==null||plannedTotal!==requiredPlan)throw Error('PAYMENT_PLAN_TOTAL_MISMATCH');
+  return {changes:changes,result:{id:task.ID,revision:Number(task.Revision||1)+1,preservedChildIds:true}};
+}
+
 function verifyOperationalDatabase(){
   opTables_={};const settings=opSettings_();if(settings.SOURCE_SPREADSHEET_ID!==OP.source||Number(settings.SCHEMA_VERSION)!==3)throw Error('MIGRATION_IDENTITY_MISMATCH');
   for(const name of ['Objects','Clients','Income','Expenses','CashTransfers','AccountablePersons','Users','AuditLog','TechTasks','Assignments','PaymentSchedule','DailyPlans','Calendar','Employees','SalaryAccruals','Leads','Measurements','Media','DataQuality'])opRows_(name);
