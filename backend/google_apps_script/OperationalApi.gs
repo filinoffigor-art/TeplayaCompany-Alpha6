@@ -227,7 +227,7 @@ function opPair_(body){
   if(attempt>=10)throw Error('PAIRING_RATE_LIMIT');cache.put(key,String(attempt+1),300);
   if(!user||!opYes_(user.Active)||!user.PairingCode||!opEqualSecret_(user.PairingCode,body.pairingCode))throw Error('PAIRING_DENIED');
   const token=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
-  opWrite_('Users',Object.assign({},user,{PairingCode:null,TokenHash:opHash_(token),Device_ID:device,UpdatedAt:new Date().toISOString()}));
+  opWrite_('Users',Object.assign({},user,{PairingCode:user.PairingCode,TokenHash:opHash_(token),Device_ID:device,UpdatedAt:new Date().toISOString()}));
   return {ok:true,userId:user.ID,name:user.Name,role:user.Role,token:token};
 }
 function opPerson_(value){const rows=opRows_('AccountablePersons'),byId=rows.find(r=>r.ID===value);if(byId)return byId;
