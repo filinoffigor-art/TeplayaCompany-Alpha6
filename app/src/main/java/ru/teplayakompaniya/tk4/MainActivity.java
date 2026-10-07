@@ -396,7 +396,7 @@ public class MainActivity extends Activity {
     // ---------- approved leader main ----------
 
     private void showMain(boolean fromNav){
-        screen="main";beginScreen(true);approvedHeader();periodSelector();
+        screen="main";beginScreen(true);approvedHeader();periodSelector();showCoverageBanner();
         if(apiRole.isEmpty())content.addView(emptyState("Не заполнено","Подключите профиль и синхронизируйте данные"));
         if(!apiRole.isEmpty()&&Stage1Rules.needsScopedData(apiRole)&&!scopedData){content.addView(emptyState("Доступ ожидает настройки","Данные вашей роли ещё не подготовлены. Обратитесь к администратору."));return;}
         if(canFinance()){
@@ -615,7 +615,7 @@ public class MainActivity extends Activity {
     // ---------- installers ----------
 
     private void showInstallers(){
-        beginScreen(true);appBar("Монтажники","Команда и расчёты");periodSelector();
+        beginScreen(true);appBar("Монтажники","Команда и расчёты");periodSelector();showCoverageBanner();
         JSONObject caps=snapshot.optJSONObject("capabilities");
         Button add=primaryOutline("+ Добавить монтажника");
         boolean canAdd=caps!=null&&caps.optBoolean("installerCreateV1",false);
@@ -692,7 +692,7 @@ public class MainActivity extends Activity {
         String title=mode.equals("income")?"Поступления":mode.equals("expenses")?"Расходы":mode.equals("analytics")?"Аналитика финансов":mode.equals("transfers")?"Передача денег":"Финансы";
         beginScreen(true);appBar(title,mode.equals("overview")?"Полный контроль движения денег":"Данные за выбранный период");
         LinearLayout tabs=h();String[][] entries={{"Обзор","finance"},{"Приход","finance:income"},{"Расход","finance:expenses"},{"Касса","accountable:all"}};
-        for(String[] entry:entries){TextView tab=tv(entry[0],11,screen.equals(entry[1])?WHITE:MUTED,Typeface.NORMAL);tab.setGravity(Gravity.CENTER);tab.setBackground(round(screen.equals(entry[1])?GREEN:softBg(),10));tab.setOnClickListener(v->navigate(entry[1]));tabs.addView(tab,new LinearLayout.LayoutParams(0,dp(36),1));}content.addView(tabs);spacer(8);periodSelector();
+        for(String[] entry:entries){TextView tab=tv(entry[0],11,screen.equals(entry[1])?WHITE:MUTED,Typeface.NORMAL);tab.setGravity(Gravity.CENTER);tab.setBackground(round(screen.equals(entry[1])?GREEN:softBg(),10));tab.setOnClickListener(v->navigate(entry[1]));tabs.addView(tab,new LinearLayout.LayoutParams(0,dp(36),1));}content.addView(tabs);spacer(8);periodSelector();showCoverageBanner();
         if(mode.equals("overview")){
             content.addView(referenceMetric("wallet","Остаток подотчётных средств",metric("totalAccountable",true),"По последнему обновлению",GREEN,"accountable:all",false));spacer(8);
         }
@@ -868,7 +868,7 @@ public class MainActivity extends Activity {
     // ---------- surveys / engineers / managers ----------
 
     private void showSurveys(){
-        beginScreen(true);appBar("Замеры","Bitrix24 · воронка «Замеры»");periodSelector();
+        beginScreen(true);appBar("Замеры","Bitrix24 · воронка «Замеры»");periodSelector();showCoverageBanner();
         content.addView(kpiCard("▤","Замеры",metric("surveys",false),"За выбранный период",ORANGE,null));
         JSONObject integrations=snapshot.optJSONObject("integrations"),bitrix=integrations==null?null:integrations.optJSONObject("bitrixMeasurements");
         boolean configured=bitrix!=null&&bitrix.optBoolean("configured",false);
@@ -934,10 +934,11 @@ public class MainActivity extends Activity {
         for(String key:new String[]{"haptic","animations"}){Switch sw=new Switch(this);sw.setText(key.equals("haptic")?"Виброотклик":"Анимации");sw.setChecked(prefs.getBoolean(key,true));sw.setOnCheckedChangeListener((b,checked)->prefs.edit().putBoolean(key,checked).apply());content.addView(sw);}
         content.addView(clickableInfoRow("Уведомления","Центр событий",v->navigate("kpi:notifications")));
         content.addView(clickableInfoRow("Синхронизация",lastSyncText,v->showSyncDialog()));
+        content.addView(infoRow("Рабочая таблица","Тёплая Компания — Управление и учёт"));
         if(Stage1Rules.isAdmin(apiRole))for(String label:new String[]{"Система","Справочники","Интеграции","Финансовые настройки","Резервные копии и обновления","Журнал изменений"}){
             content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))new AlertDialog.Builder(this).setTitle("Интеграции").setItems(new String[]{"Bitrix24","Telegram — финансы"},(d,w)->{if(w==0)showBitrixSettings();else navigate("finance:telegram");}).show();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
         }
-        content.addView(infoRow("Версия","6.3.5-connected"));
+        content.addView(infoRow("Версия","6.3.6-connected"));
         Button sync=primary("Синхронизировать сейчас");sync.setEnabled(!syncInProgress);sync.setOnClickListener(v->syncNow(true));content.addView(sync);
         Button pair=primaryOutline("Подключение устройства");pair.setOnClickListener(v->showPairingDialog());content.addView(pair);
     }
@@ -1119,7 +1120,7 @@ public class MainActivity extends Activity {
         String[] items={"Обновить данные","Настройки","Поделиться сводкой","О приложении"};
         new AlertDialog.Builder(this).setTitle("Тёплая Компания").setItems(items,(d,w)->{if(w==0)syncNow(true);else if(w==1)navigate("settings");else if(w==2)shareSummary();else showAboutDialog();}).show();
     }
-    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.3.5-connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
+    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.3.6-connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
     private void shareSummary(){
         if(!canFinance()){toast("Сводка недоступна для вашей роли");return;}
         Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,"Тёплая Компания — "+currentPeriod+"\nОборот: "+metric("turnover",true)+"\nРасходы: "+metric("expenses",true)+"\nПрибыль: "+metric("profit",true)+"\n"+lastSyncText);startActivity(Intent.createChooser(i,"Поделиться сводкой"));
@@ -1703,12 +1704,20 @@ public class MainActivity extends Activity {
         return true;
     }
     private boolean hasData(String key){return liveSyncOk&&snapshotPeriod.equals(currentPeriod)&&snapshot.has(key)&&!snapshot.isNull(key);}
+    private void showCoverageBanner(){
+        JSONObject coverage=snapshot.optJSONObject("coverage");if(!liveSyncOk||coverage==null)return;
+        if(coverage.optBoolean("complete",true))return;
+        String from=coverage.optString("from"),to=coverage.optString("to");
+        LinearLayout banner=v();banner.setPadding(dp(12),dp(10),dp(12),dp(10));banner.setBackground(round(light(ORANGE),14));
+        banner.addView(tv("Синхронизация с таблицей подключена",12,INK,Typeface.BOLD));
+        banner.addView(tv("Подтверждённый период данных таблицы: "+humanDate(from)+" — "+humanDate(to)+". Показатели за текущий период отображаются по реально найденным записям; историческая полнота за пределами этого диапазона не подтверждена.",10,MUTED,Typeface.NORMAL));
+        content.addView(banner,lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,6));
+    }
     private String metric(String key,boolean currency){
-        // Legacy v2.1 profit is merely turnover minus cash expenses, not profit of closed objects.
+        // Показываем фактически полученное от сервера значение даже при неполном историческом покрытии.
+        // Неполное покрытие объясняется отдельным баннером, а не маскирует синхронизацию как «нет данных».
         if(key.equals("profit"))key="closedProfit";
         if(!hasData("kpis")||!liveKpis.containsKey(key))return "Не заполнено";
-        JSONObject coverage=snapshot.optJSONObject("coverage");
-        if(coverage!=null&&!coverage.optBoolean("complete")||(currentPeriod.equals("Год")||currentPeriod.equals("Квартал"))&&coverage==null)return "Недостаточно данных";
         return currency?money(liveKpis.get(key)):String.valueOf(liveKpis.get(key));
     }
     private String plannedMetric(){
