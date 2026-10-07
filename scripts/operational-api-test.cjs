@@ -49,6 +49,23 @@ test('manager cannot write company finances',()=>{assert.throws(()=>command('tra
 test('manager bootstrap is scoped and excludes company finance',()=>{const r=context.opBootstrap_({userId:'M1',role:'MANAGER',employeeId:'M1'},'Месяц');assert.equal(r.objects.length,1);assert.equal(r.objects[0].id,'O1');assert.equal(r.accountable,undefined);assert.equal(r.income,undefined);assert.equal(r.kpis.expenses,undefined);assert(!JSON.stringify(r).includes('Private other client'));});
 test('installer bootstrap excludes contract amounts and other wages',()=>{tables.Assignments=sheet('Assignments',[{ID:'A1',Object_ID:'O1',Installer_ID:'I1'},{ID:'A2',Object_ID:'O1',Installer_ID:'I2'}]);tables.SalaryAccruals=sheet('SalaryAccruals',[{ID:'S1',Installer_ID:'I1',Начислено:100},{ID:'S2',Installer_ID:'I2',Начислено:999999}]);const r=context.opBootstrap_({userId:'U1',role:'INSTALLER',employeeId:'I1'},'Месяц');assert.equal(r.objects.length,1);assert.equal(r.objects[0].contract,undefined);assert.equal(r.assignments.length,1);assert.equal(r.payroll.length,1);assert(!JSON.stringify(r).includes('999999'));});
 test('source workday does not masquerade as a technical task',()=>{tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',Object_ID:'O1',Date:'2026-09-01'}]);const r=context.opBootstrap_(owner,'Месяц');assert.equal(r.dayPlans.length,0);});
+test('daily technical task fact is revision-safe and stored separately from plan',()=>{
+ tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',DayPlan_ID:'D1',TechTask_ID:'TZ1',Object_ID:'O1','День №':1,'Дата':'2026-09-10','Задача':'Утепление пола','Ед. изм.':'м²','План объём':40,'Описание работ':'Задувка пола','На что обратить внимание':'Примыкания','Факт объём':0,'Статус':'План',Revision:1}]);
+ vm.runInContext('opTables_={}',context);
+ const result=command('updateDailyProgress',{dayPlanId:'D1',objectId:'O1',actualQty:37.5,comment:'Остались примыкания',status:'В работе',expectedRevision:1});
+ assert.equal(result.revision,2);
+ vm.runInContext('opTables_={}',context);
+ const row=context.opRows_('DailyPlans').find(r=>r.ID==='D1');
+ assert.equal(row['План объём'],40);assert.equal(row['Факт объём'],37.5);assert.equal(row['Отчёт дня'],'Остались примыкания');assert.equal(row['Статус'],'В работе');
+ assert.throws(()=>command('updateDailyProgress',{dayPlanId:'D1',objectId:'O1',actualQty:40,status:'Выполнено',expectedRevision:1}),/REVISION_CONFLICT/);
+});
+test('installer may update daily fact only on an assigned object',()=>{
+ tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',DayPlan_ID:'D1',TechTask_ID:'TZ1',Object_ID:'O1','Дата':'2026-09-10','Задача':'Пол','Ед. изм.':'м²','План объём':40,Revision:1}]);
+ tables.Assignments=sheet('Assignments',[{ID:'A1',Object_ID:'O1',Installer_ID:'I1'}]);vm.runInContext('opTables_={}',context);
+ const installer={userId:'U1',name:'Installer 1',role:'INSTALLER',employeeId:'I1'};
+ command('updateDailyProgress',{dayPlanId:'D1',objectId:'O1',actualQty:20,status:'В работе',expectedRevision:1},installer);
+ assert.equal(context.opRows_('DailyPlans').find(r=>r.ID==='D1')['Факт объём'],20);
+});
 test('missing profit remains null instead of cash-flow fallback',()=>{const r=context.opBootstrap_(owner,'Месяц');assert.equal(r.kpis.closedProfit,null);assert.equal(r.kpis.averagePayment,null);});
 test('planned expense and transfer cannot inflate actual expense KPI',()=>{assert.equal(context.opExpenseSigned_({Status:'PLANNED',AmountMinor:900}),0);assert.equal(context.opExpenseSigned_({Status:'REFUND',AmountMinor:900}),-900);});
 test('formula-like customer input is kept as plain text',()=>{command('createObject',{client:'=IMPORTXML("private")',address:'Test'});assert.equal(context.opRows_('Clients').find(r=>r.Name.startsWith('=')).Name,'=IMPORTXML("private")');});
