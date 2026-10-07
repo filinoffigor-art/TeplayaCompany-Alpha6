@@ -9,7 +9,7 @@ const STAGE1_SCHEMA = [
   {name:'Назначения монтажников', row:1, required:['Assignment_ID','Object_ID','Installer_ID'], columns:['Parent_Assignment_ID','Payment_Type','Daily_Rate','Period_Start','Period_End','Actual_Days','Unallocated_Fixed_Amount','Obligation_ID','Closed_At']},
   {name:'Начисления монтажникам', row:1, required:['Installer_ID','Object_ID'], columns:['Assignment_ID','Accrual_Event_ID','Obligation_ID','Expense_ID','Recognition_Basis']},
   {name:'Технические задания', row:1, required:['TechTask_ID','Object_ID'], columns:['Client_ID','Lead_ID','Deal_ID','Survey_ID']},
-  {name:'План ТЗ по дням', row:1, required:['TechTask_ID','Object_ID'], columns:['Stage_ID','Stage_Start','Stage_End','Assignment_ID']},
+  {name:'План ТЗ по дням', row:1, required:['TechTask_ID','Object_ID'], columns:['Stage_ID','Stage_Start','Stage_End','Assignment_ID','Описание работ','На что обратить внимание','Факт объём','Отчёт дня','Обновлено','Обновил']},
   {name:'Журнал событий Stage1', row:1, required:[], columns:['Event_ID','Idempotency_Key','Actor_ID','Created_At','Entity_Type','Entity_ID','Operation','Old_Value_JSON','New_Value_JSON','Reason','Request_Hash','Commit_State']},
   {name:'Рабочие дни Stage1', row:1, required:[], columns:['WorkDay_ID','Installer_ID','Assignment_ID','Object_ID','Work_Date','Actual_Days','Daily_Rate','Accrual_Event_ID','Created_At','Actor_ID','Revision']},
   {name:'Возмещения Stage1', row:1, required:[], columns:['Reimbursement_ID','Accountable_ID','Amount','Funding_Account_ID','Created_At','Actor_ID','Reason','Event_ID','Idempotency_Key','Revision']},
