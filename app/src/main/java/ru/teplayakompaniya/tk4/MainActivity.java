@@ -615,31 +615,73 @@ public class MainActivity extends Activity {
     // ---------- installers ----------
 
     private void showInstallers(){
-        beginScreen(true);appBar("Монтажники","Справочник из Google Sheets");
+        beginScreen(true);appBar("Монтажники","Команда и расчёты");periodSelector();
+        JSONObject caps=snapshot.optJSONObject("capabilities");
+        Button add=primaryOutline("+ Добавить монтажника");
+        boolean canAdd=caps!=null&&caps.optBoolean("installerCreateV1",false);
+        add.setEnabled(canAdd);add.setOnClickListener(v->showNewInstallerDialog());content.addView(add);
+        if(!canAdd)content.addView(tv("Добавление станет активным после обновления серверного API.",11,MUTED,Typeface.NORMAL));
         if(!hasData("employees")){content.addView(emptyState("Не заполнено","Нет списка сотрудников от API"));return;}
         for(InstallerItem installer:installers)content.addView(installerCard(installer));
         if(installers.isEmpty())content.addView(emptyState("Монтажники не заполнены","Сервер вернул пустой справочник"));
     }
 
-    private View installerCard(InstallerItem installer){return clickableInfoRow(installer.name,(installer.hired?"Наёмник":"Монтажник")+" ›",v->navigate("installer:"+installer.id));}
+    private JSONObject installerStat(String installerId){
+        JSONArray stats=snapshot.optJSONArray("installerStats");if(stats==null)return null;
+        for(int i=0;i<stats.length();i++){JSONObject row=stats.optJSONObject(i);if(row!=null&&installerId.equals(row.optString("installerId")))return row;}return null;
+    }
+    private List<JSONObject> installerObjectPayRows(String installerId){
+        List<JSONObject> result=new ArrayList<>();JSONArray rows=snapshot.optJSONArray("installerObjectPay");if(rows==null)return result;
+        for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(row!=null&&installerId.equals(row.optString("installerId")))result.add(row);}
+        result.sort((a,b)->Boolean.compare(b.optBoolean("closed"),a.optBoolean("closed")));return result;
+    }
+    private View installerCard(InstallerItem installer){
+        JSONObject stat=installerStat(installer.id);
+        String summary=stat==null?(installer.hired?"Наёмник ›":"Монтажник ›"):
+                stat.optInt("workDays")+" дн. · "+stat.optInt("closedObjects")+" объектов · "+money(Math.round(stat.optDouble("earned")))+" ›";
+        return clickableInfoRow(installer.name,summary,v->navigate("installer:"+installer.id));
+    }
 
     private void showInstallerDetail(String id){
         InstallerItem installer=findInstaller(id);if(installer==null){navigate("installers");return;}
-        beginScreen(true);appBar(installer.name,(installer.hired?"Наёмник":"Монтажник")+" · "+id);
-        if(hasData("payroll")){content.addView(infoRow("Начислено по доступным записям",money(installer.accrued)));content.addView(infoRow("Выплачено по доступным записям",money(installer.paid)));}
-        if(!installer.hired)content.addView(emptyState("Недостаточно данных","API не отдаёт подтверждённую загрузку, рабочие дни, инструмент и СИЗ."));
-        sectionTitle("Назначенные объекты",null,null);JSONArray assignments=snapshot.optJSONArray("assignments");Set<String> seen=new HashSet<>();
-        if(assignments!=null)for(int n=0;n<assignments.length();n++){JSONObject assignment=assignments.optJSONObject(n);if(assignment==null||!id.equals(assignment.optString("Installer_ID")))continue;ObjectItem object=findObject(assignment.optString("Object_ID"));if(object!=null&&seen.add(object.id))content.addView(clickableInfoRow(object.address,object.status,v->navigate("object:"+object.id)));}
-        sectionTitle("История назначений",null,null);
-        if(assignments!=null)for(int n=0;n<assignments.length();n++){JSONObject assignment=assignments.optJSONObject(n);if(assignment==null||!id.equals(assignment.optString("Installer_ID")))continue;
-            content.addView(infoRow("Object_ID / Assignment_ID",assignment.optString("Object_ID")+" / "+assignment.optString("Assignment_ID")));
-            content.addView(infoRow("Период",displayField(assignment,"startDate")+" — "+displayField(assignment,"endDate")));
-            for(String[] row:new String[][]{{"Фактические дни","actualDays"},{"Тип оплаты","paymentType"},{"Начислено","accrued"},{"Выплачено","paid"},{"Осталось выплатить","remaining"}})content.addView(infoRow(row[0],displayField(assignment,row[1])));
+        beginScreen(true);appBar(installer.name,installer.hired?"Наёмник":"Монтажник");periodSelector();
+        JSONObject stat=installerStat(id);
+        if(stat!=null){
+            LinearLayout first=h();
+            first.addView(miniCard("◷","Рабочих дней",String.valueOf(stat.optInt("workDays")),BLUE,null),weight());
+            first.addView(miniCard("✓","Выполнено объектов",String.valueOf(stat.optInt("closedObjects")),GREEN,null),weightMarginLeft());content.addView(first);spacer(7);
+            LinearLayout second=h();
+            second.addView(miniCard("₽","Заработано",money(Math.round(stat.optDouble("earned"))),GREEN,null),weight());
+            second.addView(miniCard("↓","Выплачено всего",money(Math.round(stat.optDouble("paidAll"))),ORANGE,null),weightMarginLeft());content.addView(second);
+            content.addView(tv("Заработанная сумма за выбранный период начисляется только по объектам, которые закрыты в этом периоде.",11,MUTED,Typeface.NORMAL));
+        }else content.addView(emptyState("Статистика ещё не передана","После обновления серверного API здесь будут рабочие дни, закрытые объекты и заработок за выбранный период."));
+
+        sectionTitle("Расчёты по объектам",null,null);
+        List<JSONObject> rows=installerObjectPayRows(id);
+        if(rows.isEmpty())content.addView(emptyState("Назначенных объектов нет","Назначьте монтажника в техническом задании."));
+        for(JSONObject row:rows){
+            LinearLayout card=v();card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(round(softBg(),16));
+            String objectId=row.optString("objectId"),address=row.optString("address","Объект");
+            TextView title=tv(address,14,INK,Typeface.BOLD);title.setOnClickListener(v->navigate("object:"+objectId));card.addView(title);
+            card.addView(tv(row.optString("status"),11,row.optBoolean("closed")?GREEN:ORANGE,Typeface.BOLD));
+            long agreed=Math.round(row.optDouble("agreed")),earned=Math.round(row.optDouble("earned")),paid=Math.round(row.optDouble("paid")),remaining=Math.round(row.optDouble("remaining"));
+            card.addView(infoRow("Согласовано монтажнику",money(agreed)));
+            card.addView(infoRow("Заработано",row.optBoolean("closed")?money(earned):"Начислится после закрытия"));
+            card.addView(infoRow("Выплачено",money(paid)));
+            card.addView(infoRow("Остаток по объекту",money(remaining)));
+            if(!row.optBoolean("closed")&&paid>0)card.addView(tv("Выплата проведена до закрытия объекта и считается частичной. Заработок по объекту будет начислен после его закрытия.",11,ORANGE,Typeface.NORMAL));
+            if(remaining>0&&canFinance()){
+                Button pay=primaryOutline(row.optBoolean("closed")?"Выплатить / закрыть остаток":"Частичная выплата");
+                pay.setOnClickListener(v->installerPaymentDialog(installer,row));card.addView(pay);
+            }
+            LinearLayout.LayoutParams cp=lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,0);cp.setMargins(0,0,0,dp(9));content.addView(card,cp);
         }
+
         Button move=primaryOutline("Переместить на другой объект");move.setOnClickListener(v->workforceUi().moveInstaller(id));content.addView(move);
-        if(installer.hired){Button add=primaryOutline("Добавить рабочий день");add.setOnClickListener(v->workforceUi().hiredDay(id,null));content.addView(add);
+        if(installer.hired){Button day=primaryOutline("Добавить рабочий день");day.setOnClickListener(v->workforceUi().hiredDay(id,null));content.addView(day);
             if(Stage1Rules.isAdmin(apiRole)){Button promote=primaryOutline("Перевести в монтажники");promote.setOnClickListener(v->workforceUi().promote(id));content.addView(promote);}}
     }
+
 
     // ---------- finance ----------
 
@@ -826,9 +868,14 @@ public class MainActivity extends Activity {
     // ---------- surveys / engineers / managers ----------
 
     private void showSurveys(){
-        beginScreen(true);appBar("Замеры","Рабочая база API");periodSelector();
+        beginScreen(true);appBar("Замеры","Bitrix24 · воронка «Замеры»");periodSelector();
         content.addView(kpiCard("▤","Замеры",metric("surveys",false),"За выбранный период",ORANGE,null));
-        content.addView(tv("Дата замера не считается датой последнего контакта. Данные касаний пока не передаются API.",11,MUTED,Typeface.NORMAL));
+        JSONObject integrations=snapshot.optJSONObject("integrations"),bitrix=integrations==null?null:integrations.optJSONObject("bitrixMeasurements");
+        boolean configured=bitrix!=null&&bitrix.optBoolean("configured",false);
+        content.addView(infoRow("Bitrix24 · воронка",bitrix==null?"Не заполнено":bitrix.optString("funnel","Замеры")));
+        content.addView(infoRow("Синхронизация",configured?"Подключена":"Требуется настройка backend"));
+        if(bitrix!=null&&bitrix.has("lastSync")&&!bitrix.isNull("lastSync"))content.addView(infoRow("Последняя синхронизация",bitrix.optString("lastSync")));
+        Button bitrixSync=primaryOutline("Синхронизировать с Bitrix24");bitrixSync.setEnabled(capability("bitrixMeasurementsV1"));bitrixSync.setOnClickListener(v->syncMeasurementsWithBitrix(true));content.addView(bitrixSync);
         EditText search=edit("Клиент или последние 4 цифры телефона");content.addView(search);LinearLayout list=v();content.addView(list);
         Runnable rebuild=()->{list.removeAllViews();String q=search.getText().toString().trim().toLowerCase(Locale.ROOT);for(SurveyItem survey:surveys)if(q.isEmpty()||survey.client.toLowerCase(Locale.ROOT).contains(q)||survey.phone.replaceAll("[^0-9]", "").endsWith(q))list.addView(surveyCard(survey));if(list.getChildCount()==0)list.addView(emptyState("Записей нет","Проверьте фильтр и синхронизацию"));applyInteractionFeedback(list);};search.addTextChangedListener(new SimpleWatcher(rebuild));rebuild.run();
         Button create=primaryOutline("Новый замер");create.setOnClickListener(v->newSurveyDialog());content.addView(create);
@@ -890,7 +937,7 @@ public class MainActivity extends Activity {
         if(Stage1Rules.isAdmin(apiRole))for(String label:new String[]{"Система","Справочники","Интеграции","Финансовые настройки","Резервные копии и обновления","Журнал изменений"}){
             content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))new AlertDialog.Builder(this).setTitle("Интеграции").setItems(new String[]{"Bitrix24","Telegram — финансы"},(d,w)->{if(w==0)showBitrixSettings();else navigate("finance:telegram");}).show();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
         }
-        content.addView(infoRow("Версия","6.3.1-connected"));
+        content.addView(infoRow("Версия","6.3.3-connected"));
         Button sync=primary("Синхронизировать сейчас");sync.setEnabled(!syncInProgress);sync.setOnClickListener(v->syncNow(true));content.addView(sync);
         Button pair=primaryOutline("Подключение устройства");pair.setOnClickListener(v->showPairingDialog());content.addView(pair);
     }
@@ -1003,18 +1050,23 @@ public class MainActivity extends Activity {
         if(label.toLowerCase(Locale.ROOT).contains("дата"))dateOnly(e);return e;
     }
 
+    private boolean largerTextScreen(){
+        return screen.equals("profile")||screen.equals("create")||screen.equals("surveys")||screen.startsWith("survey:")||
+                screen.equals("installers")||screen.startsWith("installer:")||screen.equals("calendar")||screen.equals("settings");
+    }
+    private int uiSp(int base){return largerTextScreen()?base+1:base;}
     private EditText edit(String hint){
-        EditText e=new EditText(this);e.setTextSize(13);e.setTextColor(INK);e.setHintTextColor(Color.rgb(150,160,174));e.setSingleLine(true);e.setHint(hint);e.setPadding(dp(12),0,dp(12),0);e.setBackground(round(Color.rgb(250,251,253),13));return e;
+        EditText e=new EditText(this);e.setTextSize(uiSp(13));e.setTextColor(INK);e.setHintTextColor(Color.rgb(150,160,174));e.setSingleLine(true);e.setHint(hint);e.setPadding(dp(12),0,dp(12),0);e.setBackground(round(Color.rgb(250,251,253),13));return e;
     }
 
     private Button primary(String text){
-        Button b=new Button(this);b.setText(text);b.setTextSize(12);b.setTextColor(WHITE);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setAllCaps(false);b.setBackground(round(GREEN,14));b.setMinHeight(dp(50));return b;
+        Button b=new Button(this);b.setText(text);b.setTextSize(uiSp(12));b.setTextColor(WHITE);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setAllCaps(false);b.setBackground(round(GREEN,14));b.setMinHeight(dp(50));return b;
     }
     private Button primaryOutline(String text){
-        Button b=new Button(this);b.setText(text);b.setTextSize(12);b.setTextColor(GREEN);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setAllCaps(false);GradientDrawable g=round(WHITE,14);g.setStroke(dp(1),GREEN);b.setBackground(g);b.setMinHeight(dp(50));return b;
+        Button b=new Button(this);b.setText(text);b.setTextSize(uiSp(12));b.setTextColor(GREEN);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setAllCaps(false);GradientDrawable g=round(WHITE,14);g.setStroke(dp(1),GREEN);b.setBackground(g);b.setMinHeight(dp(50));return b;
     }
     private Button smallButton(String text,int color){
-        Button b=new Button(this);b.setText(text);b.setTextSize(10);b.setTextColor(color);b.setAllCaps(false);GradientDrawable g=round(WHITE,13);g.setStroke(dp(1),light(color));b.setBackground(g);return b;
+        Button b=new Button(this);b.setText(text);b.setTextSize(uiSp(10));b.setTextColor(color);b.setAllCaps(false);GradientDrawable g=round(WHITE,13);g.setStroke(dp(1),light(color));b.setBackground(g);return b;
     }
 
     private void addThreeMini(View a,View b,View c){
@@ -1026,7 +1078,7 @@ public class MainActivity extends Activity {
 
     private LinearLayout h(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.HORIZONTAL);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
     private LinearLayout v(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
-    private TextView tv(String s,int sp,int color,int style){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(resolveText(color));t.setTypeface(Typeface.DEFAULT,style);t.setLineSpacing(0,1.05f);return t;}
+    private TextView tv(String s,int sp,int color,int style){TextView t=new TextView(this);t.setText(s);t.setTextSize(uiSp(sp));t.setTextColor(resolveText(color));t.setTypeface(Typeface.DEFAULT,style);t.setLineSpacing(0,1.05f);return t;}
     private TextView pillText(String s,int sp,int color,int bg){TextView t=tv(s,sp,color,Typeface.BOLD);t.setBackground(round(bg,999));return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(resolveBg(color));g.setCornerRadius(dp(radius));return g;}
     private int light(int color){
@@ -1067,7 +1119,7 @@ public class MainActivity extends Activity {
         String[] items={"Обновить данные","Настройки","Поделиться сводкой","О приложении"};
         new AlertDialog.Builder(this).setTitle("Тёплая Компания").setItems(items,(d,w)->{if(w==0)syncNow(true);else if(w==1)navigate("settings");else if(w==2)shareSummary();else showAboutDialog();}).show();
     }
-    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.3.1-connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
+    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0").setMessage("Stage 1 · 6.3.3-connected\n\nНативное Android-приложение. Рабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
     private void shareSummary(){
         if(!canFinance()){toast("Сводка недоступна для вашей роли");return;}
         Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,"Тёплая Компания — "+currentPeriod+"\nОборот: "+metric("turnover",true)+"\nРасходы: "+metric("expenses",true)+"\nПрибыль: "+metric("profit",true)+"\n"+lastSyncText);startActivity(Intent.createChooser(i,"Поделиться сводкой"));
@@ -1227,8 +1279,32 @@ public class MainActivity extends Activity {
         },"tk4-media").start();
     }
 
-    private void installerPaymentDialog(InstallerItem i){unavailable("Выплата монтажнику","Используйте реальный расход с привязкой к Installer_ID после поддержки этой операции сервером.");}
-    private void showNewInstallerDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
+    private void installerPaymentDialog(InstallerItem installer,JSONObject objectRow){
+        if(!capability("installerPaymentsV1")){unavailable("Выплата монтажнику","Функция станет активной после обновления серверного API.");return;}
+        long remaining=Math.round(objectRow.optDouble("remaining"));if(remaining<=0)return;
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
+        form.addView(tv(objectRow.optString("address"),14,INK,Typeface.BOLD));
+        form.addView(tv("Остаток по объекту: "+money(remaining),12,MUTED,Typeface.NORMAL));
+        if(!objectRow.optBoolean("closed"))form.addView(tv("Объект ещё не закрыт: доступна только частичная выплата. Заработок начислится после закрытия объекта.",12,ORANGE,Typeface.NORMAL));
+        EditText amount=edit("Сумма выплаты");amount.setInputType(InputType.TYPE_CLASS_NUMBER);form.addView(labelWrap("Сумма, ₽",amount));
+        Spinner type=new Spinner(this);List<String> types=objectRow.optBoolean("closed")?Arrays.asList("Частичная выплата","Финальная выплата"):Collections.singletonList("Частичная выплата");type.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,types));form.addView(labelWrap("Тип выплаты",type));
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Выплата · "+installer.name).setView(form).setPositiveButton("Провести",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            try{long value=parseLong(amount.getText().toString());if(value<=0||value>remaining){toast("Сумма должна быть от 1 ₽ до "+money(remaining));return;}
+                JSONObject b=new JSONObject();b.put("installerId",installer.id);b.put("objectId",objectRow.optString("objectId"));b.put("amount",value);b.put("paymentType",type.getSelectedItemPosition()==1?"FINAL":"PARTIAL");
+                api.mutate("payInstaller",b,new ApiClient.Callback(){public void onSuccess(JSONObject result){dialog.dismiss();toast("Выплата сохранена. Остаток: "+money(Math.round(result.optDouble("remaining"))));syncNow(false);}public void onError(String error){showApiError(error);}});
+            }catch(Exception e){toast("Проверьте сумму");}
+        }));dialog.show();
+    }
+    private void showNewInstallerDialog(){
+        if(!capability("installerCreateV1")){unavailable("Добавить монтажника","Функция станет активной после обновления серверного API.");return;}
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);EditText name=edit("ФИО монтажника"),phone=edit("Телефон");name.setTextSize(14);phone.setTextSize(14);form.addView(labelWrap("ФИО",name));form.addView(labelWrap("Телефон",phone));
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Новый монтажник").setView(form).setPositiveButton("Добавить",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String n=name.getText().toString().trim();if(n.isEmpty()){toast("Укажите ФИО");return;}
+            try{JSONObject b=new JSONObject();b.put("name",n);b.put("phone",phone.getText().toString().trim());api.mutate("createInstaller",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){dialog.dismiss();toast("Монтажник добавлен");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError("Не удалось добавить монтажника");}
+        }));dialog.show();
+    }
 
     private boolean financeMatches(MoneyTx t){if(financeFilter.equals("Все"))return true;if(financeFilter.equals("Приходы"))return t.type.equals("INCOME");if(financeFilter.equals("Расходы"))return t.type.equals("EXPENSE");if(financeFilter.equals("Переводы"))return t.type.equals("TRANSFER");if(financeFilter.equals("Маркетинг"))return t.sub.contains("Маркетинг")||t.title.contains("Директ")||t.title.contains("Реклама");if(financeFilter.equals("Монтажники"))return t.sub.contains("монтаж")||findInstallerByName(t.sub)!=null;return !t.sub.equals("Без привязки");}
     private boolean analyticsObjectMatches(ObjectItem o){if(analyticsFilter.equals("Все объекты")||analyticsFilter.startsWith("По "))return true;return o.status.equals(analyticsFilter);}
@@ -1239,7 +1315,7 @@ public class MainActivity extends Activity {
     private ManagerItem findManager(String id){for(ManagerItem m:managers)if(m.id.equals(id))return m;return null;}
 
     private View surveyCard(SurveyItem survey){return clickableInfoRow(survey.client,survey.date+" · "+(survey.converted?"Объект создан":"Замер"),v->navigate("survey:"+survey.id));}
-    private void showSurveyDetail(String id){SurveyItem x=findSurvey(id);if(x==null){navigate("surveys");return;}beginScreen(true);appBar("Замер",x.client);content.addView(infoRow("Телефон",x.phone));content.addView(infoRow("Дата замера",x.date));content.addView(infoRow("Потенциал договора","Не заполнено"));content.addView(infoRow("Последнее касание","Не заполнено"));Button call=primaryOutline("Позвонить клиенту");call.setOnClickListener(v->{dial(x.phone);});content.addView(call);spacer(7);Button conv=primary(x.converted?"Уже переведён в объект":"Перевести замер в объект");conv.setEnabled(!x.converted);conv.setOnClickListener(v->convertSurvey(x));content.addView(conv);}
+    private void showSurveyDetail(String id){SurveyItem x=findSurvey(id);if(x==null){navigate("surveys");return;}beginScreen(true);appBar("Замер",x.client);content.addView(infoRow("Телефон",x.phone));content.addView(infoRow("Дата замера",humanDate(x.date)));content.addView(infoRow("Bitrix24","Воронка «Замеры»"));content.addView(infoRow("Потенциал договора","Не заполнено"));Button call=primaryOutline("Позвонить клиенту");call.setOnClickListener(v->{dial(x.phone);});content.addView(call);spacer(7);Button sync=primaryOutline("Синхронизировать с Bitrix24");sync.setEnabled(capability("bitrixMeasurementsV1"));sync.setOnClickListener(v->syncMeasurementsWithBitrix(true));content.addView(sync);Button conv=primary(x.converted?"Уже переведён в объект":"Перевести замер в объект");conv.setEnabled(!x.converted);conv.setOnClickListener(v->convertSurvey(x));content.addView(conv);}
     private void convertSurvey(SurveyItem x){
         if(api==null||!api.hasToken()){showPairingDialog();return;}
         try{JSONObject b=new JSONObject();b.put("surveyId",x.id);api.mutate("convertSurveyToObject",b,new ApiClient.Callback(){
@@ -1253,7 +1329,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Новый замер").setView(f).setPositiveButton("Добавить",(d,w)->{
             if(n.getText().toString().trim().isEmpty())return;if(api==null||!api.hasToken()){showPairingDialog();return;}
             try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("address",ad.getText().toString().trim());b.put("workType",wt.getText().toString().trim());b.put("date",LocalDate.now().toString());
-                api.mutate("addSurvey",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Замер записан в таблицу");syncNow(false);navigate("surveys");}public void onError(String error){showApiError(error);}});
+                api.mutate("addSurvey",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Замер создан");if(capability("bitrixMeasurementsV1"))syncMeasurementsWithBitrix(false);else{syncNow(false);navigate("surveys");}}public void onError(String error){showApiError(error);}});
             }catch(Exception e){showApiError(e.toString());}
         }).setNegativeButton("Отмена",null).show();
     }
@@ -1649,13 +1725,28 @@ public class MainActivity extends Activity {
         if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)applyInteractionFeedback(((ViewGroup)view).getChildAt(i));
     }
     private void unavailable(String title,String reason){new AlertDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();}
+    private boolean capability(String name){JSONObject caps=snapshot.optJSONObject("capabilities");return caps!=null&&caps.optBoolean(name,false);}
+    private void syncMeasurementsWithBitrix(boolean showMessage){
+        if(api==null||!api.hasToken()){if(showMessage)showPairingDialog();return;}
+        if(!capability("bitrixMeasurementsV1")){if(showMessage)unavailable("Bitrix24","На сервере ещё не настроены доступ к Bitrix24 и воронка «Замеры».");return;}
+        try{api.mutate("syncBitrixMeasurements",new JSONObject(),new ApiClient.Callback(){
+            public void onSuccess(JSONObject result){if(showMessage)toast("Bitrix24: замеры синхронизированы");syncNow(false);if(screen.startsWith("survey")||screen.equals("surveys"))navigate("surveys");}
+            public void onError(String error){if(showMessage)showApiError(error);syncNow(false);}
+        });}catch(Exception e){if(showMessage)showApiError("Не удалось запустить синхронизацию");}
+    }
     private void showBitrixSettings(){
         if(!Stage1Rules.isAdmin(apiRole))return;
-        beginScreen(true);appBar("Настройки лидов / Bitrix24","Интеграция через backend");
-        content.addView(infoRow("Статус","Не подключено"));content.addView(infoRow("Последняя синхронизация","Не заполнено"));
-        content.addView(infoRow("Настройка функционала менеджера","Требуется серверный контракт и сопоставление пользователей"));
-        for(String title:new String[]{"Подключить / переподключить","Синхронизировать сейчас","Стадии и источники","Менеджеры и рекламные каналы","Правила первого контакта"})content.addView(clickableInfoRow(title,"Требуется настройка backend",v->unavailable(title,"Секреты Bitrix24 хранятся только на сервере. Контракт ещё не активирован.")));
+        beginScreen(true);appBar("Bitrix24","Воронка «Замеры»");
+        JSONObject integrations=snapshot.optJSONObject("integrations"),bitrix=integrations==null?null:integrations.optJSONObject("bitrixMeasurements");
+        boolean configured=bitrix!=null&&bitrix.optBoolean("configured",false);
+        content.addView(infoRow("Воронка","Замеры"));
+        content.addView(infoRow("Статус",configured?"Подключено":"Не настроено"));
+        content.addView(infoRow("Последняя синхронизация",bitrix!=null&&!bitrix.isNull("lastSync")?bitrix.optString("lastSync"):"Не заполнено"));
+        content.addView(tv("Секреты Bitrix24 не хранятся в APK. Сервер использует ScriptProperties: webhook, ID воронки «Замеры» и поле связи Survey_ID.",12,MUTED,Typeface.NORMAL));
+        Button sync=primary("Синхронизировать замеры сейчас");sync.setEnabled(capability("bitrixMeasurementsV1"));sync.setOnClickListener(v->syncMeasurementsWithBitrix(true));content.addView(sync);
+        if(!configured)content.addView(emptyState("Нужна серверная настройка","После задания BITRIX_WEBHOOK_BASE, BITRIX_MEASUREMENTS_CATEGORY_ID и BITRIX_SURVEY_ID_FIELD синхронизация станет активной."));
     }
+
     private void showNotifications(){
         beginScreen(true);appBar("Все уведомления","Центр событий");
         String[] filters={"Все","Объекты","Финансы","Планируемые поступления","Монтажники","Дебиторка","Лиды","Замеры","ТЗ и ошибки данных","Просрочки","Изменения финансовых операций"};
