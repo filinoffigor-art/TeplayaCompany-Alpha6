@@ -151,7 +151,9 @@ public final class ApiClient {
                 String text = readAll(is);
                 JSONObject json = new JSONObject(text.isEmpty() ? "{}" : text);
                 if (!json.optBoolean("ok", false)) {
-                    postError(cb, json.optString("error", "HTTP_" + code));
+                    String error = json.optString("error", "HTTP_" + code);
+                    if ("AUTH_DENIED".equals(error)) clearAuth();
+                    postError(cb, error);
                 } else {
                     postSuccess(cb, json);
                 }
