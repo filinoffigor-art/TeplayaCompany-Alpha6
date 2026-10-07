@@ -57,7 +57,7 @@ test('daily technical task fact is revision-safe and stored separately from plan
  vm.runInContext('opTables_={}',context);
  const row=context.opRows_('DailyPlans').find(r=>r.ID==='D1');
  assert.equal(row['План объём'],40);assert.equal(row['Факт объём'],37.5);assert.equal(row['Отчёт дня'],'Остались примыкания');assert.equal(row['Статус'],'В работе');
- assert.throws(()=>command('updateDailyProgress',{dayPlanId:'D1',objectId:'O1',actualQty:40,status:'Выполнено',expectedRevision:1}),/REVISION_CONFLICT/);
+ assert.throws(()=>context.opCommand_(owner,{action:'updateDailyProgress',requestId:'DAILY-STALE-REVISION',dayPlanId:'D1',objectId:'O1',actualQty:40,status:'Выполнено',expectedRevision:1}),/REVISION_CONFLICT/);
 });
 test('installer may update daily fact only on an assigned object',()=>{
  tables.DailyPlans=sheet('DailyPlans',[{ID:'D1',DayPlan_ID:'D1',TechTask_ID:'TZ1',Object_ID:'O1','Дата':'2026-09-10','Задача':'Пол','Ед. изм.':'м²','План объём':40,Revision:1}]);
