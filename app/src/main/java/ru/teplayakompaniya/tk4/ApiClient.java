@@ -23,7 +23,7 @@ import java.util.concurrent.Executors;
 
 public final class ApiClient {
     // Replaced with real /exec URL before the final APK build.
-    public static final String API_URL = "https://script.google.com/macros/s/AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn-FhrZv_rnvxw-5FpvCcr6kfKFFeOdmv/exec";
+    public static final String API_URL = "https://script.google.com/macros/s/AKfycbwlyuXQq0152f4Lb6YfmTI8l-shzWegtmWZ_GfM4MuhT_D1sl8dE1Wtuwo2ugFsTo6Hew/exec";
 
     public interface Callback {
         void onSuccess(JSONObject json);
