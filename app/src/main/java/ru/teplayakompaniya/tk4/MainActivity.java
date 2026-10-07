@@ -1652,6 +1652,10 @@ public class MainActivity extends Activity {
         else if("RECORD_NOT_FOUND".equals(error))message="Запись уже удалена или больше недоступна. Обновите данные.";
         else if("DELETE_REASON_REQUIRED".equals(error))message="Укажите причину удаления.";
         else if("FORBIDDEN_FINANCE".equals(error))message="У вашей роли нет права изменять финансовые операции.";
+        else if("FORBIDDEN_TECH".equals(error))message="У вашей роли нет права изменять техническое задание.";
+        else if("CHILD_REMOVAL_REQUIRES_EXPLICIT_DELETE".equals(error))message="Существующую строку ТЗ нельзя удалить молча. Оставьте её в ТЗ; отдельное удаление будет подтверждаться отдельно.";
+        else if("PAYMENT_PLAN_BELOW_RECEIVED".equals(error))message="Плановый платёж нельзя уменьшить ниже уже полученной по этому этапу суммы.";
+        else if("TECH_TASK_EDIT_REASON_REQUIRED".equals(error))message="Укажите причину изменения технического задания.";
         new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(message).setPositiveButton("Закрыть",null).show();
     }
     private void setBusy(Button b,boolean busy){b.setEnabled(!busy);b.setText(busy?"Сохраняю…":b.getText().toString().replace("Сохраняю…","Сохранить"));}
@@ -1851,15 +1855,24 @@ public class MainActivity extends Activity {
     private boolean hasPaymentRows(String objectId){for(PaymentItem payment:livePaymentPlan)if(objectId.equals(payment.objectId))return true;return false;}
     private void showSavedTechTask(String objectId){
         ObjectItem object=findObject(objectId);beginScreen(true);appBar("Техническое задание",object==null?objectId:object.address);
-        content.addView(tv("Существующее ТЗ доступно для просмотра. Изменение через старый API может пересоздать ID графика оплат; редактирование включится после безопасного серверного контракта.",12,MUTED,Typeface.NORMAL));
-        JSONArray tasks=snapshot.optJSONArray("techTasks");if(tasks!=null)for(int n=0;n<tasks.length();n++){JSONObject task=tasks.optJSONObject(n);if(task!=null&&objectId.equals(task.optString("Object_ID"))){content.addView(infoRow("TechTask_ID",task.optString("TechTask_ID")));content.addView(infoRow("Статус",task.optString("Статус")));}}
+        JSONObject capabilities=snapshot.optJSONObject("capabilities");boolean editable=capabilities!=null&&capabilities.optBoolean("techTaskEditsV2")&&(Stage1Rules.isAdmin(apiRole)||"PARTNER".equals(apiRole)||"ENGINEER".equals(apiRole));
+        content.addView(tv(editable?"ТЗ сохранено по стабильным ID. Изменения будут записаны как новая revision без пересоздания графика оплат.":"ТЗ доступно для просмотра. У текущей роли нет права безопасного редактирования.",12,MUTED,Typeface.NORMAL));
+        JSONArray tasks=snapshot.optJSONArray("techTasks");if(tasks!=null)for(int n=0;n<tasks.length();n++){JSONObject task=tasks.optJSONObject(n);if(task!=null&&objectId.equals(task.optString("Object_ID"))){content.addView(infoRow("TechTask_ID",task.optString("TechTask_ID")));content.addView(infoRow("Статус",task.optString("Статус ТЗ",task.optString("Статус"))));content.addView(infoRow("Revision",String.valueOf(task.optInt("Revision",1))));}}
         sectionTitle("План по дням",null,null);JSONArray days=snapshot.optJSONArray("dayPlans");
         if(days!=null)for(int n=0;n<days.length();n++){JSONObject day=days.optJSONObject(n);if(day!=null&&objectId.equals(day.optString("Object_ID")))content.addView(infoRow(day.optString("Дата")+" · "+day.optString("Задача"),day.optString("План объём")+" / "+day.optString("Факт объём")));}
         TechTask task=techTasks.get(objectId);if(task!=null){sectionTitle("Согласованные суммы",null,null);for(Map.Entry<String,Long> entry:task.installers.entrySet())content.addView(infoRow(entry.getKey(),money(entry.getValue())));}
+        if(editable&&object!=null){Button edit=primary("Редактировать ТЗ");edit.setOnClickListener(v->showTechTaskEditor(objectId));content.addView(edit);}
         content.addView(clickableInfoRow("Ежедневные фото","Открыть ›",v->navigate("photos:"+objectId)));
         content.addView(clickableInfoRow("График оплат","Открыть ›",v->navigate("payments:"+objectId)));
         Button share=primaryOutline("Поделиться ТЗ");share.setOnClickListener(v->shareTechTask(objectId));content.addView(share);
         Button pdf=primaryOutline("PDF / Сохранить");pdf.setOnClickListener(v->Stage1Pdf.export(this,"ТЗ-"+objectId,techTaskText(objectId)));content.addView(pdf);
+    }
+
+    private void showTechTaskEditor(String objectId){
+        ObjectItem object=findObject(objectId);if(object==null){navigate("objects");return;}
+        JSONObject capabilities=snapshot.optJSONObject("capabilities");if(capabilities==null||!capabilities.optBoolean("techTaskEditsV2")){unavailable("Редактирование ТЗ","Сервер ещё не подтвердил безопасный контракт saveTechTaskV2.");return;}
+        beginScreen(true);appBar("Редактировать ТЗ",object.address);
+        new Stage1TaskEditor(this,content,api,object,installers,snapshot,()->syncNow(false));
     }
 
     static final class TechTask{String objectId;Map<String,Long> installers=new LinkedHashMap<>();String day1a="",day1b="",day2a="",day2b="",note="";long pay1=0,pay2=0,pay3=0;boolean saved=false;TechTask(String id){objectId=id;}}
