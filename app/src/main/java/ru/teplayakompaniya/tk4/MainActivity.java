@@ -571,7 +571,7 @@ public class MainActivity extends Activity {
                             String id=json.optString("id");
                             syncNow(false);
                             new AlertDialog.Builder(MainActivity.this).setTitle("Объект создан в Google Sheets")
-                                    .setMessage("Object_ID: "+id+"\n\nОткрыть техническое задание?")
+                                    .setMessage("Объект успешно создан.\n\nОткрыть техническое задание?")
                                     .setPositiveButton("Создать ТЗ",(d,w)->navigate("tech:"+id))
                                     .setNegativeButton("К объектам",(d,w)->navigate("objects")).show();
                         }
