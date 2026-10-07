@@ -676,8 +676,7 @@ public class MainActivity extends Activity {
                     });
                 }catch(Exception ex){showApiError(ex.toString());}
             }else{
-                toast("Сначала подключите приложение к Google Sheets");
-                showPairingDialog();
+                requireActiveSession();
             }
         }); content.addView(save);
     }
@@ -831,7 +830,7 @@ public class MainActivity extends Activity {
         String title=type.equals("INCOME")?"Добавить приход":"Добавить расход";
         new AlertDialog.Builder(this).setTitle(title).setView(form).setPositiveButton("Сохранить",(d,w)->{
             long v=parseLong(amt.getText().toString());if(v<=0){toast("Сумма не указана");return;}
-            if(api==null||!api.hasToken()){showPairingDialog();return;}
+            if(!requireActiveSession())return;
             String who=owner.getSelectedItem().toString();
             String targetValue=target.getSelectedItem().toString();
             String cat=category.getSelectedItem().toString();
@@ -882,7 +881,7 @@ public class MainActivity extends Activity {
                 .setMessage("Внутренний перевод не является расходом и не меняет общий баланс компании.")
                 .setView(form).setPositiveButton("Передать",(d,w)->{
                     long v=parseLong(amt.getText().toString());if(v<=0)return;
-                    if(api==null||!api.hasToken()){showPairingDialog();return;}
+                    if(!requireActiveSession())return;
                     String direction=dir.getSelectedItem().toString();
                     String from=direction.startsWith("Константин")?"Константин":"Игорь";
                     String to=direction.startsWith("Константин")?"Игорь":"Константин";
@@ -1158,8 +1157,11 @@ public class MainActivity extends Activity {
 
     private void showQuickAddDialog(){
         if(!canNavigate("create")){unavailable("Добавить","Нет разрешения или сервер ещё не поддерживает данные вашей роли");return;}
-        List<String> actions=new ArrayList<>(Arrays.asList("Создать объект","Новый замер"));
+        List<String> actions=new ArrayList<>();
+        if(Stage1Rules.canCreateObject(apiRole))actions.add("Создать объект");
+        if(Stage1Rules.canCreateSurvey(apiRole))actions.add("Новый замер");
         if(canFinance())actions.addAll(Arrays.asList("Добавить приход","Добавить расход","Передать деньги"));
+        if(actions.isEmpty()){unavailable("Добавить","Для вашей роли нет доступных операций создания");return;}
         new AlertDialog.Builder(this).setTitle("Добавить").setItems(actions.toArray(new String[0]),(d,w)->{
             switch(actions.get(w)){case "Создать объект":navigate("create");break;case "Новый замер":newSurveyDialog();break;case "Добавить приход":moneyDialog("INCOME");break;case "Добавить расход":moneyDialog("EXPENSE");break;default:transferDialog();}
         }).show();
@@ -1235,7 +1237,7 @@ public class MainActivity extends Activity {
         if(p.remaining>0){
             TextView ok=pillText("+ Оплата",9,WHITE,GREEN);ok.setPadding(dp(8),dp(5),dp(8),dp(5));
             ok.setOnClickListener(v->{
-                if(api==null||!api.hasToken()){showPairingDialog();return;}
+                if(!requireActiveSession())return;
                 EditText amt=edit("Сумма");amt.setInputType(InputType.TYPE_CLASS_NUMBER);amt.setText(String.valueOf(p.remaining));
                 new AlertDialog.Builder(this).setTitle("Оплата этапа").setMessage(p.stageName+" · "+p.date).setView(amt)
                         .setPositiveButton("Провести",(d,w)->{
@@ -1293,7 +1295,7 @@ public class MainActivity extends Activity {
             return;
         }
         if(requestCode!=REQ_PICK_MEDIA||resultCode!=RESULT_OK||data==null||data.getData()==null||pendingMediaObjectId==null)return;
-        if(api==null||!api.hasToken()){showPairingDialog();return;}
+        if(!requireActiveSession())return;
         Uri uri=data.getData();final String objectId=pendingMediaObjectId;pendingMediaObjectId=null;
         new Thread(()->{
         try(InputStream is=getContentResolver().openInputStream(uri);ByteArrayOutputStream bos=new ByteArrayOutputStream()){
@@ -1323,7 +1325,7 @@ public class MainActivity extends Activity {
     private View surveyCard(SurveyItem survey){return clickableInfoRow(survey.client,survey.date+" · "+(survey.converted?"Объект создан":"Замер"),v->navigate("survey:"+survey.id));}
     private void showSurveyDetail(String id){SurveyItem x=findSurvey(id);if(x==null){navigate("surveys");return;}beginScreen(true);appBar("Замер",x.client);content.addView(infoRow("Телефон",x.phone));content.addView(infoRow("Дата замера",x.date));content.addView(infoRow("Потенциал договора","Не заполнено"));content.addView(infoRow("Последнее касание","Не заполнено"));Button call=primaryOutline("Позвонить клиенту");call.setOnClickListener(v->{dial(x.phone);});content.addView(call);spacer(7);Button conv=primary(x.converted?"Уже переведён в объект":"Перевести замер в объект");conv.setEnabled(!x.converted);conv.setOnClickListener(v->convertSurvey(x));content.addView(conv);}
     private void convertSurvey(SurveyItem x){
-        if(api==null||!api.hasToken()){showPairingDialog();return;}
+        if(!requireActiveSession())return;
         try{JSONObject b=new JSONObject();b.put("surveyId",x.id);api.mutate("convertSurveyToObject",b,new ApiClient.Callback(){
             public void onSuccess(JSONObject json){x.converted=true;toast("Замер переведён в объект");syncNow(false);String oid=json.optString("objectId");if(!oid.isEmpty())navigate("object:"+oid);}
             public void onError(String error){showApiError(error);}
@@ -1333,7 +1335,7 @@ public class MainActivity extends Activity {
         LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText ad=edit("Адрес");EditText wt=edit("Вид работ");
         f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Адрес",ad));f.addView(labelWrap("Вид работ",wt));
         new AlertDialog.Builder(this).setTitle("Новый замер").setView(f).setPositiveButton("Добавить",(d,w)->{
-            if(n.getText().toString().trim().isEmpty())return;if(api==null||!api.hasToken()){showPairingDialog();return;}
+            if(n.getText().toString().trim().isEmpty())return;if(!requireActiveSession())return;
             try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("address",ad.getText().toString().trim());b.put("workType",wt.getText().toString().trim());b.put("date",LocalDate.now().toString());
                 api.mutate("addSurvey",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Замер записан в таблицу");syncNow(false);navigate("surveys");}public void onError(String error){showApiError(error);}});
             }catch(Exception e){showApiError(e.toString());}
@@ -1348,7 +1350,7 @@ public class MainActivity extends Activity {
     private void showManagerDetail(String id){ManagerItem m=findManager(id);if(m==null){navigate("managers");return;}beginScreen(true);appBar(m.name,"Менеджер");content.addView(infoRow("Лиды",String.valueOf(m.leads)));content.addView(infoRow("Замеры",String.valueOf(m.surveys)));content.addView(infoRow("Договоры",String.valueOf(m.contracts)));content.addView(infoRow("Монтажи",String.valueOf(m.installations)));content.addView(infoRow("Конверсия лид → договор",m.leads==0?"0%":(m.contracts*100/m.leads)+"%"));Button lead=primaryOutline("+ Новая заявка");lead.setOnClickListener(v->newLeadDialog());content.addView(lead);}
     private void showNewEngineerDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
     private void showNewManagerDialog(){unavailable("Недоступно","Для этого действия пока нет безопасного серверного API. Данные не изменены.");}
-    private void newLeadDialog(){LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText src=edit("Источник");f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Источник",src));new AlertDialog.Builder(this).setTitle("Новая заявка").setView(f).setPositiveButton("Сохранить",(d,w)->{if(api==null||!api.hasToken()){showPairingDialog();return;}try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("source",src.getText().toString().trim());b.put("date",LocalDate.now().toString());api.mutate("addLead",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Лид записан в таблицу");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError(e.toString());}}).setNegativeButton("Отмена",null).show();}
+    private void newLeadDialog(){LinearLayout f=v();f.setPadding(dp(18),0,dp(18),0);EditText n=edit("Клиент");EditText ph=edit("Телефон");EditText src=edit("Источник");f.addView(labelWrap("Клиент",n));f.addView(labelWrap("Телефон",ph));f.addView(labelWrap("Источник",src));new AlertDialog.Builder(this).setTitle("Новая заявка").setView(f).setPositiveButton("Сохранить",(d,w)->{if(!requireActiveSession())return;try{JSONObject b=new JSONObject();b.put("client",n.getText().toString().trim());b.put("phone",ph.getText().toString().trim());b.put("source",src.getText().toString().trim());b.put("date",LocalDate.now().toString());api.mutate("addLead",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){toast("Лид записан в таблицу");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError(e.toString());}}).setNegativeButton("Отмена",null).show();}
     private void syncNow(boolean showMessage){
         if(syncInProgress)return;
         if(api==null||!api.hasToken()){
@@ -1447,6 +1449,16 @@ public class MainActivity extends Activity {
     }
 
 
+    private boolean requireActiveSession(){
+        if(api!=null && api.hasToken())return true;
+        new AlertDialog.Builder(this)
+                .setTitle("Вход не выполнен")
+                .setMessage("Введите постоянный код один раз. После входа рабочие функции будут доступны автоматически согласно роли пользователя.")
+                .setPositiveButton("Войти",(d,w)->showPairingDialog())
+                .setNegativeButton("Отмена",null).show();
+        return false;
+    }
+
     private void showPairingDialog(){
         if(api==null || !ApiClient.isConfigured()){
             new AlertDialog.Builder(this).setTitle("API ещё не развёрнут")
@@ -1455,16 +1467,13 @@ public class MainActivity extends Activity {
             return;
         }
         LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
-        Spinner who=new Spinner(this);
-        who.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"Игорь Филинов","Константин Шумкин"}));
-        form.addView(labelWrap("Пользователь",who));
-        EditText code=edit("Код подключения из листа «Пользователи API»");
-        form.addView(labelWrap("Код подключения",code));
-        new AlertDialog.Builder(this).setTitle("Подключить устройство к Google Sheets").setView(form)
-                .setPositiveButton("Подключить",(d,w)->{
-                    String userId=who.getSelectedItemPosition()==0?"U-IGOR":"U-KONSTANTIN";
-                    api.pair(userId,code.getText().toString().trim(),new ApiClient.Callback(){
+        EditText code=edit("Постоянный код пользователя");
+        code.setInputType(InputType.TYPE_CLASS_NUMBER);
+        form.addView(labelWrap("Код входа",code));
+        new AlertDialog.Builder(this).setTitle("Вход в Тёплая Компания 4.0").setView(form)
+                .setMessage("Код вводится один раз на устройстве. Роль и права загрузятся с сервера автоматически.")
+                .setPositiveButton("Войти",(d,w)->{
+                    api.pair("",code.getText().toString().trim(),new ApiClient.Callback(){
                         public void onSuccess(JSONObject json){
                             qaDemoMode=false;seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;financeGranted=false;
                             apiRole=api.getRole();leaderName=api.getUserName();demoRole=apiRole;history.clear();screen="main";restoreSnapshot();render();
@@ -1690,6 +1699,7 @@ public class MainActivity extends Activity {
         if(target.equals("main")||target.equals("profile")||target.equals("quick")||target.equals("calendar")||target.equals("settings")||target.equals("kpi:notifications"))return true;
         if(apiRole.isEmpty()||Stage1Rules.needsScopedData(apiRole)&&!scopedData)return false;
         if(target.equals("newEmployee"))return Stage1Rules.isAdmin(apiRole);
+        if(target.equals("create"))return Stage1Rules.canCreateObject(apiRole);
         if(target.equals("finance")||target.startsWith("finance:")||target.equals("analytics")||target.startsWith("accountable:")||target.startsWith("kpi:"))return canFinance();
         return true;
     }
@@ -1800,7 +1810,7 @@ public class MainActivity extends Activity {
             remove.setOnClickListener(v->{
                 String explanation=reason.getText().toString().trim();
                 if(explanation.isEmpty()){reason.setError("Укажите причину");return;}
-                if(api==null||!api.hasToken()){dialog.dismiss();showPairingDialog();return;}
+                if(!requireActiveSession()){dialog.dismiss();return;}
                 remove.setEnabled(false);remove.setText("Удаляю…");
                 try{
                     JSONObject body=new JSONObject();body.put("entity",operation.entity);body.put("entityId",operation.id);
