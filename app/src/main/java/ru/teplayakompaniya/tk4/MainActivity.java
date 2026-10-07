@@ -1458,7 +1458,7 @@ public class MainActivity extends Activity {
     private void showPairingDialog(){
         if(api==null || !ApiClient.isConfigured()){
             new AlertDialog.Builder(this).setTitle("API ещё не развёрнут")
-                    .setMessage("Код приложения подготовлен, но в сборку ещё не записан URL Google Apps Script /exec.")
+                    .setMessage("В приложении не настроено подключение к серверу.")
                     .setPositiveButton("Понятно",null).show();
             return;
         }
@@ -1467,21 +1467,32 @@ public class MainActivity extends Activity {
         who.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,
                 new String[]{"Игорь Филинов","Константин Шумкин"}));
         form.addView(labelWrap("Пользователь",who));
-        EditText code=edit("Код подключения из листа «Пользователи API»");
+        EditText code=edit("Код подключения");
+        code.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         form.addView(labelWrap("Код подключения",code));
-        new AlertDialog.Builder(this).setTitle("Подключить устройство к Google Sheets").setView(form)
-                .setPositiveButton("Подключить",(d,w)->{
-                    String userId=who.getSelectedItemPosition()==0?"U-IGOR":"U-KONSTANTIN";
-                    api.pair(userId,code.getText().toString().trim(),new ApiClient.Callback(){
-                        public void onSuccess(JSONObject json){
-                            seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;financeGranted=false;
-                            apiRole=api.getRole();leaderName=api.getUserName();demoRole=apiRole;history.clear();screen="main";restoreSnapshot();render();
-                            toast("Устройство подключено: "+json.optString("name"));
-                            syncNow(true);
-                        }
-                        public void onError(String error){showApiError(error);}
-                    });
-                }).setNegativeButton("Отмена",null).show();
+        form.addView(tv("Код проверяется по выбранному пользователю. Системный ID вводить не нужно. Код подключения одноразовый: если он уже использовался, в листе «Пользователи API» нужно задать новый код.",11,MUTED,Typeface.NORMAL));
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Подключить устройство").setView(form)
+                .setPositiveButton("Подключить",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String pairingCode=code.getText().toString().trim();
+            if(pairingCode.isEmpty()){toast("Введите код подключения");return;}
+            String userName=String.valueOf(who.getSelectedItem());
+            Button connect=dialog.getButton(AlertDialog.BUTTON_POSITIVE);connect.setEnabled(false);connect.setText("Проверяем…");
+            api.pair(userName,pairingCode,new ApiClient.Callback(){
+                public void onSuccess(JSONObject json){
+                    dialog.dismiss();
+                    seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;financeGranted=false;
+                    apiRole=api.getRole();leaderName=api.getUserName();demoRole=apiRole;history.clear();screen="main";restoreSnapshot();render();
+                    toast("Устройство подключено: "+json.optString("name"));
+                    syncNow(true);
+                }
+                public void onError(String error){
+                    connect.setEnabled(true);connect.setText("Подключить");
+                    showApiError(error);
+                }
+            });
+        }));
+        dialog.show();
     }
 
     private void applyBootstrap(JSONObject root) throws Exception{
@@ -1659,6 +1670,10 @@ public class MainActivity extends Activity {
         else if("RECORD_NOT_FOUND".equals(error))message="Запись уже удалена или больше недоступна. Обновите данные.";
         else if("DELETE_REASON_REQUIRED".equals(error))message="Укажите причину удаления.";
         else if("FORBIDDEN_FINANCE".equals(error))message="У вашей роли нет права изменять финансовые операции.";
+        else if("PAIRING_DENIED".equals(error))message="Код подключения не подошёл выбранному пользователю или уже был использован. Проверьте пользователя и задайте новый одноразовый код в листе «Пользователи API».";
+        else if("PAIRING_CODE_REQUIRED".equals(error))message="Введите код подключения.";
+        else if("PAIRING_RATE_LIMIT".equals(error))message="Слишком много попыток подключения. Подождите несколько минут и попробуйте снова.";
+        else if("PAIRING_AMBIGUOUS".equals(error))message="Код совпал более чем с одним пользователем. Задайте отдельный код для выбранного пользователя.";
         new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(message).setPositiveButton("Закрыть",null).show();
     }
     private void setBusy(Button b,boolean busy){b.setEnabled(!busy);b.setText(busy?"Сохраняю…":b.getText().toString().replace("Сохраняю…","Сохранить"));}
