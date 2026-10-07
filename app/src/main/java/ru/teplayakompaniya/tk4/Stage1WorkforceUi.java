@@ -55,9 +55,10 @@ public final class Stage1WorkforceUi {
     }
     public void moveInstaller(String installerId){
         List<JSONObject> assignments=new ArrayList<>();List<String> labels=new ArrayList<>();
-        for(JSONObject row:rows("assignments"))if(installerId.equals(row.optString("Installer_ID"))){assignments.add(row);labels.add(row.optString("Assignment_ID")+" · "+row.optString("Object_ID"));}
+        List<JSONObject> allObjects=rows("objects");
+        for(JSONObject row:rows("assignments"))if(installerId.equals(row.optString("Installer_ID"))){assignments.add(row);String address="Объект";for(JSONObject object:allObjects)if(row.optString("Object_ID").equals(object.optString("id"))){address=object.optString("address","Объект");break;}labels.add(address);}
         if(assignments.isEmpty()){new AlertDialog.Builder(activity).setMessage("Нет назначения с Assignment_ID. Сначала синхронизируйте назначения.").setPositiveButton("Понятно",null).show();return;}
-        List<JSONObject> objects=rows("objects");List<String> objectNames=new ArrayList<>();for(JSONObject object:objects)objectNames.add(object.optString("id")+" · "+object.optString("address"));
+        List<JSONObject> objects=allObjects;List<String> objectNames=new ArrayList<>();for(JSONObject object:objects)objectNames.add(object.optString("address","Объект"));
         LinearLayout form=form();Spinner source=options(form,"Исходное назначение",labels);Spinner target=options(form,"Новый объект",objectNames);
         EditText start=date(form,"Дата перехода",false),back=date(form,"Дата возврата (необязательно)",true);
         Spinner type=options(form,"Расчёт оплаты",Arrays.asList("Дневная ставка","Фиксированная сумма"));
@@ -78,12 +79,12 @@ public final class Stage1WorkforceUi {
         });
     }
     public void hiredDay(String installerId,String selectedObjectId){
-        List<JSONObject> objects=rows("objects");List<String> labels=new ArrayList<>();int selection=0;for(JSONObject object:objects){if(object.optString("id").equals(selectedObjectId))selection=labels.size();labels.add(object.optString("id")+" · "+object.optString("address"));}
+        List<JSONObject> objects=rows("objects");List<String> labels=new ArrayList<>();int selection=0;for(JSONObject object:objects){if(object.optString("id").equals(selectedObjectId))selection=labels.size();labels.add(object.optString("address","Объект"));}
         LinearLayout form=form();EditText name=field(form,"Имя / ФИО","",false),phone=field(form,"Телефон (необязательно)","",false);Spinner object=options(form,"Объект",labels);object.setSelection(selection);
         EditText date=date(form,"Дата работы",false),work=field(form,"Вид работ","",false),rate=field(form,"Дневная ставка","",true),days=field(form,"Количество фактически отработанных дней","1",true),comment=field(form,"Комментарий","",false);
         TextView preview=new TextView(activity);preview.setText("Начисление — дни × ставка. Выплата учитывается отдельно.");form.addView(preview);
         android.text.TextWatcher watcher=new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){try{preview.setText("Начислить: "+money(Stage1Ledger.dayAccrual(Math.toIntExact(positive(days)),positive(rate)))+"; выплачено после создания: 0 ₽");}catch(Exception e){preview.setText("Укажите ставку и дни");}}public void afterTextChanged(android.text.Editable e){}};rate.addTextChangedListener(watcher);days.addTextChangedListener(watcher);
-        if(installerId!=null){name.setVisibility(android.view.View.GONE);phone.setVisibility(android.view.View.GONE);label(form,"Installer_ID: "+installerId+". Будет добавлен новый рабочий период к прежнему человеку.");}
+        if(installerId!=null){name.setVisibility(android.view.View.GONE);phone.setVisibility(android.view.View.GONE);label(form,"Новый рабочий день будет добавлен в историю выбранного монтажника.");}
         commandDialog(installerId==null?"Добавить наёмника":"Добавить рабочий день",form,"hiredWorkersV1",()->{
             int count=Math.toIntExact(positive(days));long daily=positive(rate);LocalDate day=LocalDate.parse(date.getText().toString());
             JSONObject command=Stage1Contracts.command(installerId==null?"createHiredWorkerDay":"addHiredWorkerDay",comment.getText().toString());
@@ -91,5 +92,5 @@ public final class Stage1WorkforceUi {
             command.put("Object_ID",required(objects.get(object.getSelectedItemPosition()).optString("id")));command.put("workDate",day.toString());command.put("actualDays",count);command.put("dailyRate",daily);command.put("previewAccrual",Stage1Ledger.dayAccrual(count,daily));command.put("workType",required(work.getText().toString()));return command;
         });
     }
-    public void promote(String installerId){if(!admin)return;LinearLayout form=form();label(form,"Installer_ID и вся история назначений и выплат сохраняются. Создание аккаунта — отдельная операция.");EditText reason=field(form,"Причина","",false);commandDialog("Перевести в монтажники",form,"hiredWorkersV1",()->{JSONObject command=Stage1Contracts.command("promoteHiredWorker",required(reason.getText().toString()));command.put("Installer_ID",required(installerId));return command;});}
+    public void promote(String installerId){if(!admin)return;LinearLayout form=form();label(form,"Карточка монтажника, история назначений и выплат сохраняются. Создание аккаунта — отдельная операция.");EditText reason=field(form,"Причина","",false);commandDialog("Перевести в монтажники",form,"hiredWorkersV1",()->{JSONObject command=Stage1Contracts.command("promoteHiredWorker",required(reason.getText().toString()));command.put("Installer_ID",required(installerId));return command;});}
 }
