@@ -1647,6 +1647,11 @@ public class MainActivity extends Activity {
         }catch(Exception e){return 0;}
     }
     private void showApiError(String error){
+        if("AUTH_DENIED".equals(error)){
+            if(api!=null)api.clearAuth();
+            qaDemoMode=false;seedDemoData();snapshot=new JSONObject();snapshotPeriod="";liveSyncOk=false;scopedData=false;financeGranted=false;apiRole="";
+            history.clear();screen="main";lastSyncText="Доступ отключён администратором";render();
+        }
         String message=error==null?"Не удалось выполнить операцию":error;
         if("REVISION_CONFLICT".equals(error))message="Запись была изменена другим пользователем. Обновите данные и повторите действие.";
         else if("RECORD_NOT_FOUND".equals(error))message="Запись уже удалена или больше недоступна. Обновите данные.";
