@@ -3,7 +3,7 @@
  * Не включён в Alpha 6 Android runtime; подготовлен как следующий этап.
  */
 const API_VERSION = 'tk4-v1';
-const DEFAULT_SPREADSHEET_ID = '1vTdo0kJmHQP-N4JOnqpzlSQ75uznf_Czo_w4s442WWU';
+const DEFAULT_SPREADSHEET_ID = '1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ';
 
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || 'health';
