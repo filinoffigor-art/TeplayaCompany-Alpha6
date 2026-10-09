@@ -49,7 +49,7 @@ jobs:
       - name: Static contracts
         run: |
           grep -q "applicationId 'ru.teplayakompaniya.tk4'" app/build.gradle
-          grep -q "versionCode 605003" app/build.gradle
+          grep -q "versionCode 605004" app/build.gradle
           grep -q 'AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn' app/src/main/java/ru/teplayakompaniya/tk4/ApiClient.java
           if grep -R 'WebView\|Log\.\|System.out.print' app/src/main/java; then exit 1; fi
       - name: Backend and migration contracts
@@ -82,9 +82,9 @@ jobs:
           echo "Stable parent: $parent"
           echo "Update:        $current"
           test "$current" = "$parent"
-          echo 'artifact=TeplayaCompany-v6.5.3-UPDATE-COMPATIBLE' >> "$GITHUB_OUTPUT"
+          echo 'artifact=TeplayaCompany-v6.5.4-UPDATE-COMPATIBLE' >> "$GITHUB_OUTPUT"
           echo 'VERIFIED UPDATE FOR 6.5.0 STABLE PARENT. Install over the existing app. Do not uninstall.' > delivery/COMPATIBILITY.txt
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.5.3-update.apk
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/TeplayaCompany-v6.5.4-update.apk
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
