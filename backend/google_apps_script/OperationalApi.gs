@@ -2,10 +2,15 @@
  * No source-sheet access, automatic schema writes, demo data or credential logging.
  * Monetary storage is integer kopecks. Compatibility responses use roubles.
  */
-const OP = Object.freeze({version:'tk4-v4-kpi-installer',book:'1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ',
-  source:'1vTdo0kJmHQP-N4JOnqpzlSQ75uznf_Czo_w4s442WWU',tz:'Europe/Moscow',mediaFolder:'1SKj1XR8Due3S59LKSvi0uJIBr8lJm1CA'});
+const OP = Object.freeze({
+  version:'tk4-v5-demo-only',
+  book:'1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ',
+  databaseName:'Тёплая Компания — Управление и учёт ДЛЯ ДЕМО',
+  tz:'Europe/Moscow',
+  mediaFolder:'1SKj1XR8Due3S59LKSvi0uJIBr8lJm1CA'
+});
 let opTables_={};
-function opBook_(){if(OP.book===OP.source)throw Error('SOURCE_IS_READ_ONLY');return SpreadsheetApp.openById(OP.book);}
+function opBook_(){return SpreadsheetApp.openById(OP.book);}
 function opTable_(name){
   if(opTables_[name])return opTables_[name];
   const sheet=opBook_().getSheetByName(name);if(!sheet)throw Error('SCHEMA_MISSING_'+name);
@@ -58,12 +63,12 @@ function opAuth_(body){
   if(!user||!opYes_(user.Active)||!body.token||!body.deviceId||user.Device_ID!==body.deviceId||!opEqualSecret_(user.TokenHash,opHash_(body.token)))throw Error('AUTH_DENIED');
   return {userId:user.ID,name:user.Name,role:user.Role,finance:opYes_(user.Finance),employeeId:user.Employee_ID||user.ID};
 }
-function doGet(e){try{const p=e&&e.parameter||{};if(!p.action||p.action==='health')return opJson_({ok:true,api:OP.version,spreadsheetId:OP.book});return opJson_({ok:false,error:'POST_REQUIRED'});}catch(e){return opJson_({ok:false,error:'API_UNAVAILABLE'});}}
+function doGet(e){try{const p=e&&e.parameter||{};if(!p.action||p.action==='health')return opJson_({ok:true,api:OP.version,spreadsheetId:OP.book,databaseName:OP.databaseName});return opJson_({ok:false,error:'POST_REQUIRED'});}catch(e){return opJson_({ok:false,error:'API_UNAVAILABLE'});}}
 function doPost(e){
   opTables_={};let lock;
   try{
     const b=JSON.parse(e&&e.postData&&e.postData.contents||'{}');
-    if(b.action==='health')return opJson_({ok:true,api:OP.version,spreadsheetId:OP.book});
+    if(b.action==='health')return opJson_({ok:true,api:OP.version,spreadsheetId:OP.book,databaseName:OP.databaseName});
     lock=LockService.getScriptLock();if(!lock.tryLock(15000))throw Error('REQUEST_BUSY');
     opRecover_();
     if(b.action==='pair')return opJson_(opPair_(b));
@@ -251,7 +256,7 @@ function opBootstrap_(auth,period){
   const payments=byObject(opRows_('PaymentSchedule')).map(p=>{const received=income.filter(i=>i.PaymentPlan_ID===p.ID).reduce((n,i)=>n+opIncomeSigned_(i),0),amount=opNumber_(p.AmountMinor),left=amount==null?null:Math.max(0,amount-received),date=opDate_(p.Date||p['Плановая дата']);
     return {id:p.ID,objectId:p.Object_ID,plannedDate:date,plannedAmount:opRub_(amount),actualPaid:opRub_(received),remaining:opRub_(left),stageName:p['Наименование этапа']||p.StageName,status:left==null?'Не заполнено':left===0?'Оплачено':date&&date<opToday_()?'Просрочено':'План',overdueDays:date&&date<opToday_()&&left>0?Math.floor((new Date(opToday_())-new Date(date))/86400000):0};});
   const workforce=opInstallerAnalytics_(auth,objects,range,employees),bitrix=opBitrixConfig_(),bitrixReady=opBitrixReady_(bitrix);
-  const response={ok:true,api:OP.version,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
+  const response={ok:true,api:OP.version,spreadsheetId:OP.book,databaseName:OP.databaseName,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
     scope:{enforced:true,userId:auth.userId},coverage:{from:settings.COVERAGE_FROM,to:settings.COVERAGE_TO,complete:range.from>=settings.COVERAGE_FROM&&range.to<=settings.COVERAGE_TO},
     capabilities:{financialEditsV1:finance,financialDeletesV1:finance,dailyProgressV1:true,stagePhotoMetaV1:true,installerCreateV1:opAdmin_(auth)||role==='PARTNER',installerProfileV1:full,installerPaymentsV1:finance,bitrixMeasurementsV1:bitrixReady&&(opAdmin_(auth)||['PARTNER','ENGINEER','MANAGER'].indexOf(role)>=0),personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
     integrations:{bitrixMeasurements:{configured:bitrixReady,funnel:'Замеры',lastSync:bitrix.lastSync||null}},
@@ -334,7 +339,7 @@ function opPair_(body){
   if(!user||!opYes_(user.Active)||!user.PairingCode||!opEqualSecret_(user.PairingCode,code))throw Error('PAIRING_DENIED');
   const token=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
   opWrite_('Users',Object.assign({},user,{PairingCode:null,TokenHash:opHash_(token),Device_ID:device,UpdatedAt:new Date().toISOString()}));
-  return {ok:true,userId:user.ID,name:user.Name,role:user.Role,token:token};
+  return {ok:true,userId:user.ID,name:user.Name,role:user.Role,token:token,spreadsheetId:OP.book,databaseName:OP.databaseName};
 }
 function opPerson_(value){const rows=opRows_('AccountablePersons'),byId=rows.find(r=>r.ID===value);if(byId)return byId;
   const matches=rows.filter(r=>r.Name===value);if(matches.length!==1)throw Error('ACCOUNTABLE_ID_REQUIRED');return matches[0];}
@@ -468,7 +473,7 @@ function opNewTask_(auth,data){
   return {changes:changes,result:{id:id,revision:1}};
 }
 function verifyOperationalDatabase(){
-  opTables_={};const settings=opSettings_();if(settings.SOURCE_SPREADSHEET_ID!==OP.source||Number(settings.SCHEMA_VERSION)!==3)throw Error('MIGRATION_IDENTITY_MISMATCH');
+  opTables_={};const settings=opSettings_();if(settings.SOURCE_SPREADSHEET_ID!==OP.book||Number(settings.SCHEMA_VERSION)!==3)throw Error('MIGRATION_IDENTITY_MISMATCH');
   for(const name of ['Objects','Clients','Income','Expenses','CashTransfers','AccountablePersons','Users','AuditLog','TechTasks','Assignments','PaymentSchedule','DailyPlans','Calendar','Employees','SalaryAccruals','Leads','Measurements','Media','DataQuality'])opRows_(name);
   const people=opRows_('AccountablePersons'),balances=opBalances_(people,opRows_('Income'),opRows_('Expenses'),opRows_('CashTransfers'));
   if(people.some(p=>balances[p.Name].balance!==opRub_(p.CalculatedBalanceMinor)))throw Error('MIGRATION_BALANCE_MISMATCH');
