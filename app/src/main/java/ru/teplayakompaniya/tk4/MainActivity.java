@@ -954,7 +954,7 @@ public class MainActivity extends Activity {
         content.addView(clickableInfoRow("Синхронизация",lastSyncText,v->showSyncDialog()));
         content.addView(infoRow("Тип установки","ОСНОВНОЕ приложение · НЕ УДАЛЯТЬ"));
         content.addView(infoRow("Обновление","Новые APK устанавливать поверх этой версии"));
-        content.addView(infoRow("Рабочая таблица","Тёплая Компания — Управление и учёт"));
+        content.addView(infoRow("Рабочая таблица","Тёплая Компания — Управление и учёт ДЛЯ ДЕМО"));
         if(Stage1Rules.isAdmin(apiRole))for(String label:new String[]{"Система","Справочники","Интеграции","Финансовые настройки","Резервные копии и обновления","Журнал изменений"}){
             content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))new AlertDialog.Builder(this).setTitle("Интеграции").setItems(new String[]{"Bitrix24","Telegram — финансы"},(d,w)->{if(w==0)showBitrixSettings();else navigate("finance:telegram");}).show();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
         }
@@ -1726,6 +1726,7 @@ public class MainActivity extends Activity {
         else if("PAIRING_CODE_REQUIRED".equals(error))message="Введите код подключения.";
         else if("PAIRING_RATE_LIMIT".equals(error))message="Слишком много попыток подключения. Подождите несколько минут и попробуйте снова.";
         else if("PAIRING_AMBIGUOUS".equals(error))message="Код совпал более чем с одним пользователем. Задайте отдельный код для выбранного пользователя.";
+        else if("SERVER_DATABASE_MISMATCH".equals(error))message="Остановлено: сервер подключён не к таблице «Тёплая Компания — Управление и учёт ДЛЯ ДЕМО». Приложение не будет читать или записывать данные в другую таблицу.";
         new AlertDialog.Builder(this).setTitle("Ошибка синхронизации").setMessage(message).setPositiveButton("Закрыть",null).show();
     }
     private void setBusy(Button b,boolean busy){b.setEnabled(!busy);b.setText(busy?"Сохраняю…":b.getText().toString().replace("Сохраняю…","Сохранить"));}
