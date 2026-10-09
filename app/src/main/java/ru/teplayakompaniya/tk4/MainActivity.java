@@ -408,7 +408,7 @@ public class MainActivity extends Activity {
         if(!apiRole.isEmpty()&&Stage1Rules.needsScopedData(apiRole)&&!scopedData){content.addView(emptyState("Доступ ожидает настройки","Данные вашей роли ещё не подготовлены. Обратитесь к администратору."));return;}
         if(canFinance()){
             LinearLayout first=h();first.addView(referenceMetric("money","Оборот",metric("turnover",true),"Фактические поступления",GREEN,"kpi:turnover",false),weight());
-            first.addView(referenceMetric("chart","Прибыль",metric("profit",true),"По закрытым объектам",GREEN,"kpi:profit",false),weightMarginLeft());content.addView(first);spacer(8);
+            first.addView(referenceMetric("chart","Чистая прибыль",metric("profit",true),"Доходы − все расходы",netProfitNumber()<0?RED:GREEN,"kpi:profit",false),weightMarginLeft());content.addView(first);spacer(8);
             LinearLayout second=h();second.addView(referenceMetric("wallet","Общие расходы",metric("expenses",true),"За выбранный период",RED,"kpi:expenses",false),weight());
             second.addView(referenceMetric("objects","В работе",metric("objectsInWork",false),metric("objectsInWorkAmount",true),BLUE,"kpi:objects_work",false),weightMarginLeft());content.addView(second);
         }
@@ -971,7 +971,12 @@ public class MainActivity extends Activity {
                 for(MoneyTx t:txs)if(t.type.equals("INCOME") && turnoverMatches(key,t))content.addView(clickableInfoRow(t.sub,t.title+" · "+money(t.amount),v->showOperation(t)));break;
             case "expenses":financeFilter="Расходы";showFinance();break;
             case "profit":
-                content.addView(infoRow("Прибыль закрытых объектов",metric("profit",true)));content.addView(tv("Фактические поступления минус подтверждённые расходы и распределённые затраты закрытых объектов. Денежный поток компании не заменяет прибыль.",13,MUTED,Typeface.NORMAL));content.addView(clickableInfoRow("Закрытые объекты","Открыть объекты",v->navigate("objects")));break;
+                content.addView(infoRow("Все доходы за период",metric("turnover",true)));
+                content.addView(infoRow("Все расходы за период",metric("expenses",true)));
+                content.addView(infoRow("Чистая прибыль",metric("profit",true)));
+                content.addView(tv("Чистая прибыль = все подтверждённые доходы − все подтверждённые расходы за выбранный период. Налоги входят в расчёт как расход. Передача денег между подотчётными лицами расходом компании не считается.",13,MUTED,Typeface.NORMAL));
+                content.addView(clickableInfoRow("Поступления","Открыть все доходы ›",v->navigate("finance:income")));
+                content.addView(clickableInfoRow("Расходы","Открыть все расходы ›",v->navigate("finance:expenses")));break;
             case "planned_objects":
                 content.addView(infoRow("Запланированы",String.valueOf(countStatus("Запланирован"))));content.addView(infoRow("Подтверждены",String.valueOf(countStatus("Подтверждён")+countStatus("Подтверждён клиентом"))));content.addView(infoRow("Готовы к монтажу",String.valueOf(countStatus("Готов к монтажу"))));for(ObjectItem o:objects)if(o.status.equals("Запланирован")||o.status.equals("Подтверждён")||o.status.equals("Подтверждён клиентом")||o.status.equals("Готов к монтажу"))content.addView(clickableInfoRow(o.address,o.status,v->navigate("object:"+o.id)));break;
             case "objects_work":
@@ -994,7 +999,7 @@ public class MainActivity extends Activity {
 
     private String humanKpi(String k){
         Map<String,String> m=new HashMap<>();
-        m.put("turnover","Оборот");m.put("turnover_all","Общий оборот");m.put("turnover_intermediate","Промежуточные платежи");m.put("turnover_closed","Полностью оплаченные объекты");m.put("profit","Прибыль");m.put("objects_work","Объекты в работе");m.put("planned_objects","Запланированные объекты");m.put("leads","Лиды");
+        m.put("turnover","Оборот");m.put("turnover_all","Общий оборот");m.put("turnover_intermediate","Промежуточные платежи");m.put("turnover_closed","Полностью оплаченные объекты");m.put("profit","Чистая прибыль");m.put("objects_work","Объекты в работе");m.put("planned_objects","Запланированные объекты");m.put("leads","Лиды");
         m.put("contracts","Договоры");m.put("avg","Средний чек");m.put("debt","Дебиторка");m.put("expenses","Расходы");
         m.put("plan_income","Планируется поступление");m.put("remaining","Осталось получить");m.put("balance","Общий остаток");
         m.put("accountable","Подотчёт");m.put("notifications","Уведомления");return m.getOrDefault(k,k.replace('_',' '));
@@ -1528,7 +1533,7 @@ public class MainActivity extends Activity {
         liveKpis.clear();
         JSONObject k=root.optJSONObject("kpis");
         if(k!=null){
-            String[] keys={"turnover","turnoverIntermediate","turnoverFinal","expenses","profit","closedProfit","objectsInWork","plannedObjects",
+            String[] keys={"turnover","turnoverIntermediate","turnoverFinal","expenses","profit","netProfit","closedProfit","objectsInWork","plannedObjects",
                     "leads","surveys","surveysCompleted","surveysScheduled","contracts","averageCheck","debt","plannedReceipts","remainingToReceive","objectsInWorkAmount",
                     "accountableIgor","accountableKonstantin","totalAccountable","averagePayment","averageExpense"};
             for(String key:keys) if(k.has(key)&&!k.isNull(key)&&k.opt(key) instanceof Number) liveKpis.put(key,k.getLong(key));
@@ -1722,10 +1727,20 @@ public class MainActivity extends Activity {
         banner.addView(tv("Подтверждённый период данных таблицы: "+humanDate(from)+" — "+humanDate(to)+". Показатели за текущий период отображаются по реально найденным записям; историческая полнота за пределами этого диапазона не подтверждена.",10,MUTED,Typeface.NORMAL));
         content.addView(banner,lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,6));
     }
+    private double netProfitNumber(){
+        if(liveKpis.containsKey("netProfit"))return liveKpis.get("netProfit");
+        if(liveKpis.containsKey("profit"))return liveKpis.get("profit");
+        if(liveKpis.containsKey("turnover")&&liveKpis.containsKey("expenses"))return liveKpis.get("turnover")-liveKpis.get("expenses");
+        return 0;
+    }
     private String metric(String key,boolean currency){
         // Показываем фактически полученное от сервера значение даже при неполном историческом покрытии.
-        // Неполное покрытие объясняется отдельным баннером, а не маскирует синхронизацию как «нет данных».
-        if(key.equals("profit"))key="closedProfit";
+        // Для старого backend чистая прибыль безопасно считается на клиенте из тех же period-scoped KPI:
+        // подтверждённые доходы минус все подтверждённые расходы.
+        if(key.equals("profit")){
+            if(!hasData("kpis")||(!liveKpis.containsKey("netProfit")&&!liveKpis.containsKey("profit")&&!(liveKpis.containsKey("turnover")&&liveKpis.containsKey("expenses"))))return "Не заполнено";
+            double v=netProfitNumber();return currency?money(v):String.valueOf(v);
+        }
         if(!hasData("kpis")||!liveKpis.containsKey(key))return "Не заполнено";
         return currency?money(liveKpis.get(key)):String.valueOf(liveKpis.get(key));
     }
