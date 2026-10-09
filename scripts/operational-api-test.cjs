@@ -109,7 +109,24 @@ test('installer may update daily fact only on an assigned object',()=>{
  command('updateDailyProgress',{dayPlanId:'D1',objectId:'O1',actualQty:20,status:'В работе',expectedRevision:1},installer);
  assert.equal(context.opRows_('DailyPlans').find(r=>r.ID==='D1')['Факт объём'],20);
 });
-test('missing profit remains null instead of cash-flow fallback',()=>{const r=context.opBootstrap_(owner,'Месяц');assert.equal(r.kpis.closedProfit,null);assert.equal(r.kpis.averagePayment,null);});
+test('net profit is all confirmed income minus all confirmed expenses including taxes',()=>{
+ tables.Income=sheet('Income',[
+  {ID:'NP-I1',Date:'2026-09-10',Operation:'Приход',AmountMinor:10000000,Status:'CONFIRMED'},
+  {ID:'NP-I2',Date:'2026-09-11',Operation:'Приход',AmountMinor:5000000,Status:'CONFIRMED'}
+ ]);
+ tables.Expenses=sheet('Expenses',[
+  {ID:'NP-E1',Date:'2026-09-12',Category:'Материалы',AmountMinor:3000000,Status:'CONFIRMED'},
+  {ID:'NP-E2',Date:'2026-09-13',Category:'Налоги',AmountMinor:2000000,Status:'CONFIRMED'},
+  {ID:'NP-E3',Date:'2026-09-14',Category:'Реклама',AmountMinor:900000,Status:'PLANNED'}
+ ]);
+ tables.CashTransfers=sheet('CashTransfers',[{ID:'NP-T1',Date:'2026-09-15',AmountMinor:7000000,Status:'CONFIRMED',Person_ID:'P1',ToPerson_ID:'P2'}]);
+ const r=context.opBootstrap_(owner,'Месяц');
+ assert.equal(r.kpis.turnover,150000);
+ assert.equal(r.kpis.expenses,50000);
+ assert.equal(r.kpis.netProfit,100000);
+ assert.equal(r.kpis.profit,100000);
+ assert.equal(r.kpis.closedProfit,null);
+});
 test('planned expense and transfer cannot inflate actual expense KPI',()=>{assert.equal(context.opExpenseSigned_({Status:'PLANNED',AmountMinor:900}),0);assert.equal(context.opExpenseSigned_({Status:'REFUND',AmountMinor:900}),-900);});
 test('formula-like customer input is kept as plain text',()=>{command('createObject',{client:'=IMPORTXML("private")',address:'Test'});assert.equal(context.opRows_('Clients').find(r=>r.Name.startsWith('=')).Name,'=IMPORTXML("private")');});
 if(fs.existsSync('migration-local/operational-plan.json'))test('private approved migration reconciles cash and preserved IDs',()=>{
