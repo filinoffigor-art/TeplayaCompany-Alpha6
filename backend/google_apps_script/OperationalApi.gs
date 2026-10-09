@@ -87,6 +87,40 @@ function opAllowedObjects_(auth,objects){
 }
 function opIncomeSigned_(r){return r.Status==='CONFIRMED'&&Number.isSafeInteger(r.AmountMinor)?(r.Operation==='Возврат клиенту'?-1:1)*r.AmountMinor:0;}
 function opExpenseSigned_(r){return ['CONFIRMED','REFUND'].indexOf(r.Status)>=0&&Number.isSafeInteger(r.AmountMinor)?(r.Status==='REFUND'?-1:1)*r.AmountMinor:0;}
+function opMonthRu_(iso){
+  const month=Number(opStr_(iso).slice(5,7)),year=opStr_(iso).slice(0,4);
+  const names=['','января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  return (names[month]||'месяца')+' '+year;
+}
+function opPersistMonthlyFinanceKpis_(range,kpis){
+  if(!range||kpis.turnover==null||kpis.expenses==null||kpis.netProfit==null)return;
+  const id='KPI-MONTH-'+range.from.slice(0,7),today=opToday_(),status=today>range.to?'ЗАФИКСИРОВАНО':'ТЕКУЩИЙ ПЕРИОД';
+  const previous=opFind_('PlanFact',id);
+  const stable={
+    'Период':'Месяц · '+opMonthRu_(range.from),
+    'Период с':range.from,'Период по':range.to,'Расчёт по':today,
+    'Поступления, ₽':kpis.turnover,'Расходы, ₽':kpis.expenses,'Чистая прибыль, ₽':kpis.netProfit,'Статус':status
+  };
+  const same=previous&&Object.keys(stable).every(k=>opStr_(previous[k])===opStr_(stable[k]));
+  if(!same)opWrite_('PlanFact',Object.assign({},previous||{ID:id},stable,{'Обновлено':new Date().toISOString()}));
+
+  const book=opBook_(),dash=book.getSheetByName('Дашборд');
+  if(dash){
+    dash.getRange(3,2,1,5).setValues([[opMonthRu_(range.from),'','по '+range.to.split('-').reverse().join('.'),'','Расчёт по '+today.split('-').reverse().join('.')]]);
+    dash.getRange(6,1,1,5).setValues([[kpis.turnover,'',kpis.expenses,'',kpis.netProfit]]);
+    dash.getRange(10,7,1,1).setValues([[kpis.netProfit]]);
+    dash.getRange(11,7,1,1).setValues([['Все подтверждённые доходы − все подтверждённые расходы за период, включая налоги. Внутренние передачи денег не считаются расходом.']]);
+  }
+  const summary=book.getSheetByName('Сводка приложения');
+  if(summary){
+    summary.getRange(2,1,3,3).setValues([
+      ['Поступления — '+opMonthRu_(range.from),kpis.turnover,'Все подтверждённые доходы за период минус возвраты клиентам'],
+      ['Расходы — '+opMonthRu_(range.from),kpis.expenses,'Все подтверждённые расходы за период, включая налоги; внутренние переводы исключены'],
+      ['Денежный результат — '+opMonthRu_(range.from),kpis.netProfit,'Поступления минус расходы']
+    ]);
+    summary.getRange(6,1,1,3).setValues([['Чистая прибыль — '+opMonthRu_(range.from),kpis.netProfit,'Все подтверждённые доходы − все подтверждённые расходы за период, включая налоги']]);
+  }
+}
 function opBalances_(people,income,expenses,transfers){
   const out={};people.forEach(p=>{
     let balance=opNumber_(p.OpeningMinor),received=0,spent=0,incoming=0,outgoing=0;
@@ -224,6 +258,7 @@ function opBootstrap_(auth,period){
     kpis.debt=payments.some(p=>p.remaining==null)?null:payments.filter(p=>p.status==='Просрочено').reduce((n,p)=>n+p.remaining,0);
     kpis.plannedReceipts=payments.some(p=>p.remaining==null)?null:payments.filter(p=>p.status==='План').reduce((n,p)=>n+p.remaining,0);
     response.financeAnalytics={expenseCategories:opGroupExpenses_(pe,'Category'),cashFlow:null,suppliers:null};
+    if(period==='Месяц')opPersistMonthlyFinanceKpis_(range,kpis);
   }
   const quality=opRows_('DataQuality').filter(r=>r.Status==='OPEN'&&(full||ids.has(r.EntityID)));
   response.attention=quality.map(r=>({id:r.ID,title:r.Message,subtitle:r.EntityType+' · '+r.Field,severity:r.Severity==='CRITICAL'?'red':'yellow',target:r.EntityType==='Objects'?'object:'+r.EntityID:'kpi:notifications'}));
