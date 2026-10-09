@@ -78,7 +78,7 @@ function doPost(e){
       const response=opBootstrap_(auth,b.period||'Месяц'),serialized=JSON.stringify(response);
       if(serialized.length<35000)cache.put(key,serialized,30);return opJson_(response);
     }
-    return opJson_(opCommand_(auth,b));
+    const result=opCommand_(auth,b);result.spreadsheetId=OP.book;result.databaseName=OP.databaseName;return opJson_(result);
   }catch(error){const code=opStr_(error&&error.message);return opJson_({ok:false,error:/^[A-Z][A-Z0-9_]{2,80}$/.test(code)?code:'REQUEST_FAILED'});}
   finally{if(lock&&lock.hasLock())lock.releaseLock();}
 }
