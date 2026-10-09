@@ -227,7 +227,23 @@ function opBootstrap_(auth,period){
   const full=opAdmin_(auth)||role==='PARTNER';
   const employees=opRows_('Employees').filter(r=>full||r.ID===auth.employeeId||role==='ENGINEER'&&opRows_('Assignments').some(a=>ids.has(a.Object_ID)&&a.Installer_ID===r.ID));
   const leads=opRows_('Leads').filter(r=>full||r.Manager_ID===auth.userId),surveys=opRows_('Measurements').filter(r=>full||r.Manager_ID===auth.userId||r.Engineer_ID===auth.userId);
-  const kpis={objectsInWork:objects.filter(o=>o.Status==='В работе').length,objectsInWorkAmount:null,leads:leads.filter(r=>opInPeriod_(r.Date,range)).length,surveysCompleted:null,surveysScheduled:null,contracts:null,averageCheck:null,closedProfit:null,netProfit:null,profit:null};
+  const periodObjectDate=o=>opDate_(o.ActualStart)||opDate_(o.PlanStart)||opDate_(o.ActualEnd);
+  const periodObjects=objects.filter(o=>{const d=periodObjectDate(o);return d&&opInPeriod_(d,range);});
+  const contractObjects=periodObjects.filter(o=>Number.isSafeInteger(o.ContractMinor)&&o.ContractMinor>0);
+  const periodSurveys=surveys.filter(r=>opInPeriod_(r.Date||r['Дата'],range));
+  const surveyDone=r=>opYes_(r.ConvertedToObject)||/ПРОВЕД|ЗАВЕРШ|ВЫПОЛН/i.test(opStr_(r.Status||r['Статус']));
+  const kpis={
+    objectsInWork:objects.filter(o=>o.Status==='В работе').length,
+    objectsInWorkAmount:null,
+    plannedObjects:objects.filter(o=>['Запланирован','Подтверждён','Подтверждён клиентом','Готов к монтажу'].indexOf(o.Status)>=0).length,
+    leads:leads.filter(r=>opInPeriod_(r.Date||r['Дата'],range)).length,
+    surveys:periodSurveys.length,
+    surveysCompleted:periodSurveys.filter(surveyDone).length,
+    surveysScheduled:periodSurveys.filter(r=>!surveyDone(r)).length,
+    contracts:contractObjects.length,
+    averageCheck:contractObjects.length?opRub_(Math.round(contractObjects.reduce((n,o)=>n+o.ContractMinor,0)/contractObjects.length)):0,
+    closedProfit:null,netProfit:null,profit:null
+  };
   const active=objects.filter(o=>o.Status==='В работе');if(role!=='INSTALLER'&&active.every(o=>Number.isSafeInteger(o.ContractMinor)))kpis.objectsInWorkAmount=opRub_(active.reduce((n,o)=>n+o.ContractMinor,0));
   const publicObjects=objects.map(o=>{const client=clients.find(c=>c.ID===o.Client_ID)||{};const paid=income.filter(i=>i.Object_ID===o.ID).reduce((n,i)=>n+opIncomeSigned_(i),0);
     const r={id:o.ID,clientId:o.Client_ID,address:o.Address,client:client.Name,phone:client.Phone,workType:o.WorkType,status:o.Status,progress:opNumber_(o.Progress),planStart:opDate_(o.PlanStart),planEnd:opDate_(o.PlanEnd),factStart:opDate_(o.ActualStart),factEnd:opDate_(o.ActualEnd),engineer:o.Engineer_ID,responsible:o.LegacyResponsible,brigade:o.LegacyCrew,revision:o.Revision||1};
@@ -237,9 +253,9 @@ function opBootstrap_(auth,period){
   const workforce=opInstallerAnalytics_(auth,objects,range,employees),bitrix=opBitrixConfig_(),bitrixReady=opBitrixReady_(bitrix);
   const response={ok:true,api:OP.version,serverTime:new Date().toISOString(),period:period,user:{id:auth.userId,name:auth.name,role:role,finance:finance,admin:opAdmin_(auth)},
     scope:{enforced:true,userId:auth.userId},coverage:{from:settings.COVERAGE_FROM,to:settings.COVERAGE_TO,complete:range.from>=settings.COVERAGE_FROM&&range.to<=settings.COVERAGE_TO},
-    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,dailyProgressV1:true,stagePhotoMetaV1:true,installerCreateV1:opAdmin_(auth)||role==='PARTNER',installerPaymentsV1:finance,bitrixMeasurementsV1:bitrixReady&&(opAdmin_(auth)||['PARTNER','ENGINEER','MANAGER'].indexOf(role)>=0),personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
+    capabilities:{financialEditsV1:finance,financialDeletesV1:finance,dailyProgressV1:true,stagePhotoMetaV1:true,installerCreateV1:opAdmin_(auth)||role==='PARTNER',installerProfileV1:full,installerPaymentsV1:finance,bitrixMeasurementsV1:bitrixReady&&(opAdmin_(auth)||['PARTNER','ENGINEER','MANAGER'].indexOf(role)>=0),personalReimbursementsV1:false,assignmentPeriodsV1:false,hiredWorkersV1:false},kpis:kpis,objects:publicObjects,
     integrations:{bitrixMeasurements:{configured:bitrixReady,funnel:'Замеры',lastSync:bitrix.lastSync||null}},
-    employees:employees.map(r=>({id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind})),
+    employees:employees.map(r=>{const item={id:r.ID,name:r.Name||r['ФИО'],role:r.Role||r['Роль'],active:r.Active==null?'true':opStr_(r.Active),phone:r.Phone||r['Телефон'],workerKind:r.WorkerKind,revision:r.Revision||1};if(full){item.address=r.Address||'';item.relativeName=r.RelativeName||'';item.relativePhone=r.RelativePhone||'';item.serviceContractSigned=opYes_(r.ServiceContractSigned);}return item;}),
     installerStats:workforce.stats,installerObjectPay:workforce.objects,
     leads:leads.map(opPublicRow_),surveys:surveys.map(opPublicRow_),techTasks:byObject(opRows_('TechTasks')).map(opPublicRow_),dayPlans:byObject(opRows_('DailyPlans')).filter(r=>r.TechTask_ID).map(opPublicRow_),assignments:byObject(opRows_('Assignments')).map(opPublicRow_),calendar:byObject(opRows_('Calendar')).map(opPublicRow_),media:byObject(opRows_('Media')).map(opPublicRow_),paymentPlan:role==='INSTALLER'?[]:payments,
     payroll:opRows_('SalaryAccruals').filter(r=>full||role==='INSTALLER'&&r.Installer_ID===auth.employeeId).map(opPublicRow_),attention:[],lists:{}};
@@ -248,6 +264,9 @@ function opBootstrap_(auth,period){
     const pi=income.filter(r=>opInPeriod_(r.Date,range)),pe=expenses.filter(r=>opInPeriod_(r.Date,range));
     const incomeMinor=pi.reduce((n,r)=>n+opIncomeSigned_(r),0),expenseMinor=pe.reduce((n,r)=>n+opExpenseSigned_(r),0);
     kpis.turnover=opRub_(incomeMinor);kpis.expenses=opRub_(expenseMinor);
+    const confirmedIncome=pi.filter(r=>r.Status==='CONFIRMED'&&r.Operation!=='Возврат клиенту');
+    kpis.turnoverFinal=opRub_(confirmedIncome.filter(r=>/Окончатель/i.test(opStr_(r.PaymentKind))).reduce((n,r)=>n+r.AmountMinor,0));
+    kpis.turnoverIntermediate=opRub_(confirmedIncome.filter(r=>!/Окончатель/i.test(opStr_(r.PaymentKind))).reduce((n,r)=>n+r.AmountMinor,0));
     // Чистая прибыль компании за период: все подтверждённые доходы минус все подтверждённые расходы.
     // Налоги входят автоматически, если они заведены как подтверждённый расход. Внутренние передачи денег не являются расходом.
     kpis.netProfit=opRub_(incomeMinor-expenseMinor);kpis.profit=kpis.netProfit;
@@ -257,6 +276,7 @@ function opBootstrap_(auth,period){
     response.income=pi.map(r=>opIncomeDto_(r,objects,people));response.expenses=pe.concat(transfers.filter(r=>opInPeriod_(r.Date,range))).map(r=>opExpenseDto_(r,objects,people));response.historyComplete=true;
     kpis.debt=payments.some(p=>p.remaining==null)?null:payments.filter(p=>p.status==='Просрочено').reduce((n,p)=>n+p.remaining,0);
     kpis.plannedReceipts=payments.some(p=>p.remaining==null)?null:payments.filter(p=>p.status==='План').reduce((n,p)=>n+p.remaining,0);
+    kpis.remainingToReceive=publicObjects.reduce((n,o)=>n+(typeof o.remaining==='number'?Math.max(0,o.remaining):0),0);
     response.financeAnalytics={expenseCategories:opGroupExpenses_(pe,'Category'),cashFlow:null,suppliers:null};
     if(period==='Месяц')opPersistMonthlyFinanceKpis_(range,kpis);
   }
@@ -324,7 +344,7 @@ function opDateRequired_(value){const d=opDate_(value);if(!d)throw Error('INVALI
 function opPick_(source,keys){const out={};keys.forEach(k=>{if(source[k]!==undefined)out[k]=source[k];});return out;}
 function opCommand_(auth,body){
   const action=opStr_(body.action),requestId=opRequired_(body.idempotencyKey||body.requestId,'REQUEST_ID_REQUIRED');if(requestId.length>120)throw Error('INVALID_REQUEST_ID');
-  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','attention','quantity','unit','unitPrice','paymentStatus','accountable','installerId','name','paymentType','from','to','date','client','phone','address','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','dayPlanId','actualQty','mimeType','mediaType','stage'];
+  const allowed=['amount','objectId','paymentKind','operation','method','payer','recipient','comment','documentNo','paymentPlanId','type','article','description','attention','quantity','unit','unitPrice','paymentStatus','accountable','installerId','name','paymentType','from','to','date','client','phone','address','relativeName','relativePhone','serviceContractSigned','workType','brigade','status','planStart','planEnd','progress','contract','channel','responsible','expectedRevision','reason','entity','entityId','surveyId','source','owner','engineer','engineerId','materialsReady','technology','area','safetyNotes','days','assignments','payments','techTaskId','dayPlanId','actualQty','mimeType','mediaType','stage'];
   const data=opPick_(body,allowed);if(action==='uploadMedia')data.contentHash=opHash_(opStr_(body.base64));
   if(action==='syncBitrixMeasurements')return opBitrixSyncMeasurements_(auth);
   const hash=opHash_(opCanonical_({action:action,data:data})),key=auth.userId+':'+requestId;
@@ -374,7 +394,24 @@ function opCommand_(auth,body){
     if(!opAdmin_(auth)&&opRole_(auth)!=='PARTNER')throw Error('FORBIDDEN_EMPLOYEES');
     const name=opRequired_(data.name),phone=opStr_(data.phone).trim();
     if(opRows_('Employees').some(e=>opStr_(e.Name).trim().toLowerCase()===name.toLowerCase()&&(phone===''||opStr_(e.Phone).trim()===phone)))throw Error('EMPLOYEE_ALREADY_EXISTS');
-    const id=opId_('EMP');changes.push(opChange_('Employees',null,{ID:id,Name:name,Phone:phone||null,Role:'INSTALLER',Active:true,WorkerKind:'STAFF'}));result={id:id};
+    const id=opId_('EMP');changes.push(opChange_('Employees',null,{
+      ID:id,Name:name,Phone:phone||null,Role:'INSTALLER',Active:true,WorkerKind:'STAFF',
+      Address:opStr_(data.address).trim()||null,RelativeName:opStr_(data.relativeName).trim()||null,
+      RelativePhone:opStr_(data.relativePhone).trim()||null,ServiceContractSigned:opYes_(data.serviceContractSigned),
+      ProfileUpdatedAt:new Date().toISOString()
+    }));result={id:id};
+  }else if(action==='updateInstallerProfile'){
+    if(!opAdmin_(auth)&&opRole_(auth)!=='PARTNER')throw Error('FORBIDDEN_EMPLOYEES');
+    const employee=opFind_('Employees',opRequired_(data.installerId));if(!employee)throw Error('INSTALLER_NOT_FOUND');
+    if(Number(data.expectedRevision)!==Number(employee.Revision||1))throw Error('REVISION_CONFLICT');
+    const fields={ProfileUpdatedAt:new Date().toISOString()};
+    if(data.name!==undefined)fields.Name=opRequired_(data.name);
+    if(data.phone!==undefined)fields.Phone=opStr_(data.phone).trim()||null;
+    if(data.address!==undefined)fields.Address=opStr_(data.address).trim()||null;
+    if(data.relativeName!==undefined)fields.RelativeName=opStr_(data.relativeName).trim()||null;
+    if(data.relativePhone!==undefined)fields.RelativePhone=opStr_(data.relativePhone).trim()||null;
+    if(data.serviceContractSigned!==undefined)fields.ServiceContractSigned=opYes_(data.serviceContractSigned);
+    changes.push(opChange_('Employees',employee,fields));result={id:employee.ID,revision:Number(employee.Revision||1)+1};
   }else if(action==='payInstaller'){
     if(!opFinance_(auth))throw Error('FORBIDDEN_FINANCE');
     const installer=opFind_('Employees',opRequired_(data.installerId));if(!installer)throw Error('INSTALLER_NOT_FOUND');
