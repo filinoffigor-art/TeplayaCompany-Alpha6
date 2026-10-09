@@ -63,10 +63,44 @@ test('pairing rejects a code that belongs to another selected user',()=>{
  ]);vm.runInContext('opTables_={}',context);
  assert.throws(()=>context.opPair_({userName:'Игорь Филинов',pairingCode:'1357',deviceId:'DEVICE-X'}),/PAIRING_DENIED/);
 });
-test('owner can create installer without exposing a technical setup flow',()=>{
- const result=command('createInstaller',{name:'Installer New',phone:'+79990000000'});assert(result.id);
- const employee=context.opRows_('Employees').find(r=>r.ID===result.id);assert.equal(employee.Name,'Installer New');assert.equal(employee.Role,'INSTALLER');assert.equal(employee.WorkerKind,'STAFF');
+test('owner can create and update a complete installer profile',()=>{
+ const result=command('createInstaller',{name:'Installer New',phone:'+79990000000',address:'Москва, ул. Тестовая, 1',relativeName:'Иван Иванов',relativePhone:'+79991112233',serviceContractSigned:true});assert(result.id);
+ let employee=context.opRows_('Employees').find(r=>r.ID===result.id);
+ assert.equal(employee.Name,'Installer New');assert.equal(employee.Role,'INSTALLER');assert.equal(employee.WorkerKind,'STAFF');
+ assert.equal(employee.Address,'Москва, ул. Тестовая, 1');assert.equal(employee.RelativeName,'Иван Иванов');assert.equal(employee.RelativePhone,'+79991112233');assert.equal(employee.ServiceContractSigned,true);
+ const updated=context.opCommand_(owner,{action:'updateInstallerProfile',requestId:'INSTALLER-PROFILE-UPDATE',installerId:result.id,expectedRevision:1,name:'Installer New',phone:'+79990000001',address:'Москва, ул. Новая, 2',relativeName:'Пётр Иванов',relativePhone:'+79994445566',serviceContractSigned:false});
+ assert.equal(updated.revision,2);vm.runInContext('opTables_={}',context);employee=context.opFind_('Employees',result.id);
+ assert.equal(employee.Phone,'+79990000001');assert.equal(employee.Address,'Москва, ул. Новая, 2');assert.equal(employee.RelativePhone,'+79994445566');assert.equal(employee.ServiceContractSigned,false);
 });
+test('leader bootstrap fills dashboard KPI statistics from operational rows',()=>{
+ context.opToday_=()=> '2026-09-23';
+ tables.Objects=sheet('Objects',[
+  {ID:'O1',Client_ID:'C1',Address:'Object 1',Status:'В работе',ContractMinor:10000000,PlanStart:'2026-09-05',Revision:1},
+  {ID:'O2',Client_ID:'C2',Address:'Object 2',Status:'Запланирован',ContractMinor:20000000,PlanStart:'2026-09-10',Revision:1}
+ ]);
+ tables.Clients=sheet('Clients',[{ID:'C1',Name:'Client 1'},{ID:'C2',Name:'Client 2'}]);
+ tables.Leads=sheet('Leads',[
+  {ID:'L1',Date:'2026-09-03',Manager_ID:'OWNER'},
+  {ID:'L2',Date:'2026-09-04',Manager_ID:'OWNER'}
+ ]);
+ tables.Measurements=sheet('Measurements',[
+  {ID:'M1',Date:'2026-09-08',ConvertedToObject:true},
+  {ID:'M2',Date:'2026-09-09',ConvertedToObject:false}
+ ]);
+ tables.Income=sheet('Income',[
+  {ID:'I1',Date:'2026-09-12',Operation:'Приход',PaymentKind:'Аванс',AmountMinor:3000000,Status:'CONFIRMED',Object_ID:'O1'},
+  {ID:'I2',Date:'2026-09-15',Operation:'Приход',PaymentKind:'Окончательный расчёт',AmountMinor:7000000,Status:'CONFIRMED',Object_ID:'O1'}
+ ]);
+ tables.Expenses=sheet('Expenses',[{ID:'E1',Date:'2026-09-16',Category:'Налоги',AmountMinor:1000000,Status:'CONFIRMED'}]);
+ vm.runInContext('opTables_={}',context);
+ const r=context.opBootstrap_(owner,'Месяц');
+ assert.equal(r.kpis.objectsInWork,1);assert.equal(r.kpis.plannedObjects,1);
+ assert.equal(r.kpis.leads,2);assert.equal(r.kpis.surveys,2);assert.equal(r.kpis.surveysCompleted,1);assert.equal(r.kpis.surveysScheduled,1);
+ assert.equal(r.kpis.contracts,2);assert.equal(r.kpis.averageCheck,150000);
+ assert.equal(r.kpis.turnover,100000);assert.equal(r.kpis.turnoverIntermediate,30000);assert.equal(r.kpis.turnoverFinal,70000);
+ assert.equal(r.kpis.expenses,10000);assert.equal(r.kpis.netProfit,90000);
+});
+
 test('partial installer payment is allowed before object close and cannot exceed object remainder',()=>{
  tables.Employees=sheet('Employees',[{ID:'I1',Name:'Installer 1',Role:'INSTALLER',Active:true,WorkerKind:'STAFF'}]);
  tables.Assignments=sheet('Assignments',[{ID:'A1',Assignment_ID:'A1',Object_ID:'O1',Installer_ID:'I1','Монтажник':'Installer 1','Согласованная сумма':60000}]);
