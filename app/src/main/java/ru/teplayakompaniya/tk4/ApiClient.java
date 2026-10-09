@@ -24,6 +24,8 @@ import java.util.concurrent.Executors;
 public final class ApiClient {
     // Replaced with real /exec URL before the final APK build.
     public static final String API_URL = "https://script.google.com/macros/s/AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn-FhrZv_rnvxw-5FpvCcr6kfKFFeOdmv/exec";
+    public static final String EXPECTED_SPREADSHEET_ID = "1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ";
+    public static final String EXPECTED_DATABASE_NAME = "Тёплая Компания — Управление и учёт ДЛЯ ДЕМО";
 
     public interface Callback {
         void onSuccess(JSONObject json);
@@ -153,6 +155,8 @@ public final class ApiClient {
                 JSONObject json = new JSONObject(text.isEmpty() ? "{}" : text);
                 if (!json.optBoolean("ok", false)) {
                     postError(cb, json.optString("error", "HTTP_" + code));
+                } else if (!EXPECTED_SPREADSHEET_ID.equals(json.optString("spreadsheetId", ""))) {
+                    postError(cb, "SERVER_DATABASE_MISMATCH");
                 } else {
                     postSuccess(cb, json);
                 }
