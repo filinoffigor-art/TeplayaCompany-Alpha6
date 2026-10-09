@@ -1727,7 +1727,7 @@ public class MainActivity extends Activity {
         banner.addView(tv("Подтверждённый период данных таблицы: "+humanDate(from)+" — "+humanDate(to)+". Показатели за текущий период отображаются по реально найденным записям; историческая полнота за пределами этого диапазона не подтверждена.",10,MUTED,Typeface.NORMAL));
         content.addView(banner,lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT,6));
     }
-    private double netProfitNumber(){
+    private long netProfitNumber(){
         if(liveKpis.containsKey("netProfit"))return liveKpis.get("netProfit");
         if(liveKpis.containsKey("profit"))return liveKpis.get("profit");
         if(liveKpis.containsKey("turnover")&&liveKpis.containsKey("expenses"))return liveKpis.get("turnover")-liveKpis.get("expenses");
@@ -1739,7 +1739,7 @@ public class MainActivity extends Activity {
         // подтверждённые доходы минус все подтверждённые расходы.
         if(key.equals("profit")){
             if(!hasData("kpis")||(!liveKpis.containsKey("netProfit")&&!liveKpis.containsKey("profit")&&!(liveKpis.containsKey("turnover")&&liveKpis.containsKey("expenses"))))return "Не заполнено";
-            double v=netProfitNumber();return currency?money(v):String.valueOf(v);
+            long v=netProfitNumber();return currency?money(v):String.valueOf(v);
         }
         if(!hasData("kpis")||!liveKpis.containsKey(key))return "Не заполнено";
         return currency?money(liveKpis.get(key)):String.valueOf(liveKpis.get(key));
