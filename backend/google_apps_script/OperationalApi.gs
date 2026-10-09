@@ -2,7 +2,7 @@
  * No source-sheet access, automatic schema writes, demo data or credential logging.
  * Monetary storage is integer kopecks. Compatibility responses use roubles.
  */
-const OP = Object.freeze({version:'tk4-v3-connected',book:'1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ',
+const OP = Object.freeze({version:'tk4-v4-kpi-installer',book:'1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ',
   source:'1vTdo0kJmHQP-N4JOnqpzlSQ75uznf_Czo_w4s442WWU',tz:'Europe/Moscow',mediaFolder:'1SKj1XR8Due3S59LKSvi0uJIBr8lJm1CA'});
 let opTables_={};
 function opBook_(){if(OP.book===OP.source)throw Error('SOURCE_IS_READ_ONLY');return SpreadsheetApp.openById(OP.book);}
