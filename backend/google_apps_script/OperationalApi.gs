@@ -193,7 +193,7 @@ function opBootstrap_(auth,period){
   const full=opAdmin_(auth)||role==='PARTNER';
   const employees=opRows_('Employees').filter(r=>full||r.ID===auth.employeeId||role==='ENGINEER'&&opRows_('Assignments').some(a=>ids.has(a.Object_ID)&&a.Installer_ID===r.ID));
   const leads=opRows_('Leads').filter(r=>full||r.Manager_ID===auth.userId),surveys=opRows_('Measurements').filter(r=>full||r.Manager_ID===auth.userId||r.Engineer_ID===auth.userId);
-  const kpis={objectsInWork:objects.filter(o=>o.Status==='В работе').length,objectsInWorkAmount:null,leads:leads.filter(r=>opInPeriod_(r.Date,range)).length,surveysCompleted:null,surveysScheduled:null,contracts:null,averageCheck:null,closedProfit:null};
+  const kpis={objectsInWork:objects.filter(o=>o.Status==='В работе').length,objectsInWorkAmount:null,leads:leads.filter(r=>opInPeriod_(r.Date,range)).length,surveysCompleted:null,surveysScheduled:null,contracts:null,averageCheck:null,closedProfit:null,netProfit:null,profit:null};
   const active=objects.filter(o=>o.Status==='В работе');if(role!=='INSTALLER'&&active.every(o=>Number.isSafeInteger(o.ContractMinor)))kpis.objectsInWorkAmount=opRub_(active.reduce((n,o)=>n+o.ContractMinor,0));
   const publicObjects=objects.map(o=>{const client=clients.find(c=>c.ID===o.Client_ID)||{};const paid=income.filter(i=>i.Object_ID===o.ID).reduce((n,i)=>n+opIncomeSigned_(i),0);
     const r={id:o.ID,clientId:o.Client_ID,address:o.Address,client:client.Name,phone:client.Phone,workType:o.WorkType,status:o.Status,progress:opNumber_(o.Progress),planStart:opDate_(o.PlanStart),planEnd:opDate_(o.PlanEnd),factStart:opDate_(o.ActualStart),factEnd:opDate_(o.ActualEnd),engineer:o.Engineer_ID,responsible:o.LegacyResponsible,brigade:o.LegacyCrew,revision:o.Revision||1};
@@ -212,7 +212,11 @@ function opBootstrap_(auth,period){
   if(role==='INSTALLER'){response.assignments=response.assignments.filter(r=>r.Installer_ID===auth.employeeId);response.calendar=response.calendar.filter(r=>r.Installer_ID===auth.employeeId);response.techTasks=response.techTasks.map(r=>({TechTask_ID:r.TechTask_ID,Object_ID:r.Object_ID,'План начала':r['План начала'],'План окончания':r['План окончания'],'Комментарий':r['Комментарий']}));}
   if(finance){
     const pi=income.filter(r=>opInPeriod_(r.Date,range)),pe=expenses.filter(r=>opInPeriod_(r.Date,range));
-    kpis.turnover=opRub_(pi.reduce((n,r)=>n+opIncomeSigned_(r),0));kpis.expenses=opRub_(pe.reduce((n,r)=>n+opExpenseSigned_(r),0));
+    const incomeMinor=pi.reduce((n,r)=>n+opIncomeSigned_(r),0),expenseMinor=pe.reduce((n,r)=>n+opExpenseSigned_(r),0);
+    kpis.turnover=opRub_(incomeMinor);kpis.expenses=opRub_(expenseMinor);
+    // Чистая прибыль компании за период: все подтверждённые доходы минус все подтверждённые расходы.
+    // Налоги входят автоматически, если они заведены как подтверждённый расход. Внутренние передачи денег не являются расходом.
+    kpis.netProfit=opRub_(incomeMinor-expenseMinor);kpis.profit=kpis.netProfit;
     const paid=pi.filter(r=>r.Status==='CONFIRMED'&&r.Operation==='Приход');kpis.averagePayment=paid.length?opRub_(Math.round(paid.reduce((n,r)=>n+r.AmountMinor,0)/paid.length)):null;
     const outgoing=pe.filter(r=>r.Status==='CONFIRMED');kpis.averageExpense=outgoing.length?opRub_(Math.round(outgoing.reduce((n,r)=>n+r.AmountMinor,0)/outgoing.length)):null;
     response.accountable=opBalances_(people,income,expenses,transfers);const balances=Object.values(response.accountable).map(a=>a.balance);kpis.totalAccountable=balances.every(x=>x!=null)?balances.reduce((n,x)=>n+x,0):null;
