@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $ScriptId = "1dX85EHEZRii7tWK_wU_FBJxmIsW2PFqU15mAYy12UMjqngv3wvw5y2MR"
 $DeploymentId = "AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn-FhrZv_rnvxw-5FpvCcr6kfKFFeOdmv"
 $ExpectedSpreadsheetId = "1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ"
-$ExpectedDatabaseName = "Тёплая Компания — Управление и учёт ДЛЯ ДЕМО"
+$ExpectedDatabaseName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("0KLRkdC/0LvQsNGPINCa0L7QvNC/0LDQvdC40Y8g4oCUINCj0L/RgNCw0LLQu9C10L3QuNC1INC4INGD0YfRkdGCINCU0JvQryDQlNCV0JzQng=="))
 $ExpectedApi = "tk4-v5-demo-only"
 $WebAppUrl = "https://script.google.com/macros/s/$DeploymentId/exec"
 
