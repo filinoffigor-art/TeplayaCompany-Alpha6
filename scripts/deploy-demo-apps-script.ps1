@@ -44,13 +44,30 @@ try {
 
   $remoteApi = Join-Path $work "OperationalApi.gs"
   if (!(Test-Path $remoteApi)) {
-    throw "STOP: Existing project does not contain OperationalApi.gs. Nothing was created or deployed."
+    $codeFiles = @(Get-ChildItem -Path $work -File | Where-Object { $_.Extension -in @(".gs",".js") })
+    $legacyMatches = @()
+    foreach ($file in $codeFiles) {
+      $text = Get-Content -Raw -Encoding UTF8 $file.FullName
+      $isKnownLegacyApi =
+        $text.Contains("const API_VERSION = 'tk4-v1'") -and
+        $text.Contains($ExpectedSpreadsheetId) -and
+        $text.Contains("function doGet") -and
+        $text.Contains("function doPost")
+      if ($isKnownLegacyApi) { $legacyMatches += $file }
+    }
+    if ($legacyMatches.Count -ne 1) {
+      $names = ($codeFiles | ForEach-Object { $_.Name }) -join ", "
+      throw "STOP: OperationalApi.gs is absent and the existing legacy API file could not be identified uniquely. Code files: $names. Nothing was created or deployed."
+    }
+    $remoteApi = $legacyMatches[0].FullName
+    Write-Host ("Identified existing legacy API file: " + $legacyMatches[0].Name)
   }
 
-  Write-Host "3/7 Replace ONLY OperationalApi.gs..."
+  Write-Host ("3/7 Replace ONLY existing API code file: " + (Split-Path -Leaf $remoteApi))
   Copy-Item -Force $SourceFile $remoteApi
 
-  Write-Host "4/7 Push existing project back with only OperationalApi.gs changed..."
+  Write-Host "4/7 Confirm changed files and push the existing project..."
+  Clasp show-file-status
   Clasp push --force
 
   if (!$SkipRuntimeVerify) {
@@ -70,7 +87,7 @@ try {
   if (!$deploymentText.Contains($DeploymentId)) {
     throw "STOP: Existing deployment ID was not found. No new deployment will be created."
   }
-  Clasp create-deployment --deploymentId $DeploymentId --description "TK4 demo API $ExpectedApi"
+  Clasp update-deployment $DeploymentId --description "TK4 demo API $ExpectedApi"
 
   Write-Host "7/7 Check existing /exec URL..."
   $health = Invoke-RestMethod -Method Get -Uri $WebAppUrl
