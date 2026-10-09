@@ -231,7 +231,12 @@
     "Role",
     "Active",
     "WorkerKind",
-    "Revision"
+    "Revision",
+    "Address",
+    "RelativeName",
+    "RelativePhone",
+    "ServiceContractSigned",
+    "ProfileUpdatedAt"
   ],
   "SalaryAccruals": [
     "ID",
