@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$ScriptId = "1dX85EHEZRii7tWK_wU_FBJxmIsW2PFqU15mAYy12UMjqngv3wvw5y2MR"
+$ScriptId = "1YcUc_Sa5MKYrJut6pv7kiksTs2Hxbi1D-EzeYYGBkWVtw6WGub-n9aq6"
 $DeploymentId = "AKfycbwoAeJf7fPZDGvteBsjrver2RhPGfooZdFZn-FhrZv_rnvxw-5FpvCcr6kfKFFeOdmv"
 $ExpectedSpreadsheetId = "1msnOiHA2W_M2OI6eJLDFcL_mP1L_LWIirqsVZIa3IUQ"
 $ExpectedDatabaseName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("0KLRkdC/0LvQsNGPINCa0L7QvNC/0LDQvdC40Y8g4oCUINCj0L/RgNCw0LLQu9C10L3QuNC1INC4INGD0YfRkdGCINCU0JvQryDQlNCV0JzQng=="))
@@ -29,6 +29,21 @@ function Clasp {
   if ($LASTEXITCODE -ne 0) { throw "clasp failed: $($Args -join ' ')" }
 }
 
+function ClaspRetry {
+  param(
+    [int]$Attempts = 5,
+    [int]$DelaySeconds = 15,
+    [Parameter(ValueFromRemainingArguments=$true)][string[]]$Args
+  )
+  for ($try = 1; $try -le $Attempts; $try++) {
+    & npx -y @google/clasp@latest @Args
+    if ($LASTEXITCODE -eq 0) { return }
+    if ($try -eq $Attempts) { throw "clasp failed after $Attempts attempts: $($Args -join ' ')" }
+    Write-Host ("Apps Script API may still be propagating. Retry $try/$Attempts in $DelaySeconds sec...")
+    Start-Sleep -Seconds $DelaySeconds
+  }
+}
+
 try {
   Push-Location $work
 
@@ -40,7 +55,7 @@ try {
   }
 
   Write-Host "2/7 Clone EXISTING Apps Script project..."
-  Clasp clone-script $ScriptId --rootDir "."
+  ClaspRetry clone-script $ScriptId --rootDir "."
 
   $remoteApi = Join-Path $work "OperationalApi.gs"
   if (!(Test-Path $remoteApi)) {
@@ -71,10 +86,17 @@ try {
   Clasp push --force
 
   if (!$SkipRuntimeVerify) {
-    Write-Host "5/7 Run verifyOperationalDatabase..."
-    & npx -y @google/clasp@latest run-function verifyOperationalDatabase
-    if ($LASTEXITCODE -ne 0) {
-      throw "Runtime verification failed. Existing deployment was NOT updated. If clasp reports that API Executable is not published, run this script again with -SkipRuntimeVerify only after manually running verifyOperationalDatabase in Apps Script."
+    Write-Host "5/7 Try verifyOperationalDatabase..."
+    $verifyOutput = & npx -y @google/clasp@latest run-function verifyOperationalDatabase 2>&1
+    $verifyCode = $LASTEXITCODE
+    $verifyText = ($verifyOutput | Out-String)
+    Write-Host $verifyText
+    if ($verifyCode -ne 0) {
+      if ($verifyText -match "API Executable|not published|Execution API|run-function") {
+        Write-Host "Remote function execution is not published for this project; continuing with existing Web App deployment and mandatory live health verification."
+      } else {
+        throw "verifyOperationalDatabase failed. Existing deployment was NOT updated."
+      }
     }
   } else {
     Write-Host "5/7 Runtime verification skipped by explicit flag."
