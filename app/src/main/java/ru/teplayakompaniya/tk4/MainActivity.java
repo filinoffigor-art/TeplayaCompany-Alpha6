@@ -958,7 +958,7 @@ public class MainActivity extends Activity {
         if(Stage1Rules.isAdmin(apiRole))for(String label:new String[]{"Система","Справочники","Интеграции","Финансовые настройки","Резервные копии и обновления","Журнал изменений"}){
             content.addView(clickableInfoRow(label,"Открыть",v->{if(label.equals("Интеграции"))new AlertDialog.Builder(this).setTitle("Интеграции").setItems(new String[]{"Bitrix24","Telegram — финансы"},(d,w)->{if(w==0)showBitrixSettings();else navigate("finance:telegram");}).show();else unavailable(label,"Настройки сервера пока не передаются API. Изменения будут доступны после подключения соответствующего контракта.");}));
         }
-        content.addView(infoRow("Версия","6.5.2-parent"));
+        content.addView(infoRow("Версия","6.5.3-parent"));
         Button sync=primary("Синхронизировать сейчас");sync.setEnabled(!syncInProgress);sync.setOnClickListener(v->syncNow(true));content.addView(sync);
         Button pair=primaryOutline("Подключение устройства");pair.setOnClickListener(v->showPairingDialog());content.addView(pair);
     }
@@ -1145,7 +1145,7 @@ public class MainActivity extends Activity {
         String[] items={"Обновить данные","Настройки","Поделиться сводкой","О приложении"};
         new AlertDialog.Builder(this).setTitle("Тёплая Компания").setItems(items,(d,w)->{if(w==0)syncNow(true);else if(w==1)navigate("settings");else if(w==2)shareSummary();else showAboutDialog();}).show();
     }
-    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0 — ОСНОВНОЕ").setMessage("Версия 6.5.2-parent\n\nЭто родительская установка. НЕ УДАЛЯТЬ. Все следующие APK устанавливать поверх неё, чтобы сохранялись авторизация, код устройства и синхронизация.\n\nРабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
+    private void showAboutDialog(){new AlertDialog.Builder(this).setTitle("Тёплая Компания 4.0 — ОСНОВНОЕ").setMessage("Версия 6.5.3-parent\n\nЭто родительская установка. НЕ УДАЛЯТЬ. Все следующие APK устанавливать поверх неё, чтобы сохранялись авторизация, код устройства и синхронизация.\n\nРабочие данные синхронизируются с Google Sheets через защищённый API.\n\n"+lastSyncText).setPositiveButton("Понятно",null).show();}
     private void shareSummary(){
         if(!canFinance()){toast("Сводка недоступна для вашей роли");return;}
         Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,"Тёплая Компания — "+currentPeriod+"\nОборот: "+metric("turnover",true)+"\nРасходы: "+metric("expenses",true)+"\nПрибыль: "+metric("profit",true)+"\n"+lastSyncText);startActivity(Intent.createChooser(i,"Поделиться сводкой"));
