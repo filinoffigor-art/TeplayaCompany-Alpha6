@@ -652,6 +652,17 @@ public class MainActivity extends Activity {
     private void showInstallerDetail(String id){
         InstallerItem installer=findInstaller(id);if(installer==null){navigate("installers");return;}
         beginScreen(true);appBar(installer.name,installer.hired?"Наёмник":"Монтажник");periodSelector();
+
+        sectionTitle("Личные данные",null,null);
+        content.addView(infoRow("Телефон",installer.phone.isEmpty()?"Не указан":installer.phone));
+        content.addView(infoRow("Адрес проживания",installer.address.isEmpty()?"Не указан":installer.address));
+        content.addView(infoRow("Родственник / контакт",installer.relativeName.isEmpty()?"Не указан":installer.relativeName));
+        content.addView(infoRow("Телефон родственника",installer.relativePhone.isEmpty()?"Не указан":installer.relativePhone));
+        content.addView(infoRow("Договор оказания услуг",installer.serviceContractSigned?"+":"−"));
+        if(!installer.phone.isEmpty()){Button call=primaryOutline("Позвонить монтажнику");call.setOnClickListener(v->dial(installer.phone));content.addView(call);}
+        if(!installer.relativePhone.isEmpty()){Button relative=primaryOutline("Позвонить родственнику");relative.setOnClickListener(v->dial(installer.relativePhone));content.addView(relative);}
+        if(capability("installerProfileV1")){Button edit=primaryOutline("Редактировать данные монтажника");edit.setOnClickListener(v->showInstallerProfileDialog(installer));content.addView(edit);}
+        sectionTitle("Статистика",null,null);
         JSONObject stat=installerStat(id);
         if(stat!=null){
             LinearLayout first=h();
@@ -1313,11 +1324,34 @@ public class MainActivity extends Activity {
     }
     private void showNewInstallerDialog(){
         if(!capability("installerCreateV1")){unavailable("Добавить монтажника","Функция станет активной после обновления серверного API.");return;}
-        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);EditText name=edit("ФИО монтажника"),phone=edit("Телефон");name.setTextSize(14);phone.setTextSize(14);form.addView(labelWrap("ФИО",name));form.addView(labelWrap("Телефон",phone));
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
+        EditText name=edit("ФИО монтажника"),phone=edit("Телефон"),address=edit("Адрес проживания"),relativeName=edit("ФИО родственника / контакт"),relativePhone=edit("Телефон родственника");
+        name.setTextSize(14);phone.setTextSize(14);address.setTextSize(14);relativeName.setTextSize(14);relativePhone.setTextSize(14);
+        form.addView(labelWrap("ФИО",name));form.addView(labelWrap("Телефон",phone));form.addView(labelWrap("Адрес проживания",address));
+        form.addView(labelWrap("Родственник / контакт",relativeName));form.addView(labelWrap("Телефон родственника",relativePhone));
+        CheckBox contract=new CheckBox(this);contract.setText("Договор оказания услуг подписан");form.addView(contract);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Новый монтажник").setView(form).setPositiveButton("Добавить",null).setNegativeButton("Отмена",null).create();
         dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
             String n=name.getText().toString().trim();if(n.isEmpty()){toast("Укажите ФИО");return;}
-            try{JSONObject b=new JSONObject();b.put("name",n);b.put("phone",phone.getText().toString().trim());api.mutate("createInstaller",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){dialog.dismiss();toast("Монтажник добавлен");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError("Не удалось добавить монтажника");}
+            try{JSONObject b=new JSONObject();b.put("name",n);b.put("phone",phone.getText().toString().trim());b.put("address",address.getText().toString().trim());b.put("relativeName",relativeName.getText().toString().trim());b.put("relativePhone",relativePhone.getText().toString().trim());b.put("serviceContractSigned",contract.isChecked());api.mutate("createInstaller",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){dialog.dismiss();toast("Монтажник добавлен");syncNow(false);}public void onError(String error){showApiError(error);}});}catch(Exception e){showApiError("Не удалось добавить монтажника");}
+        }));dialog.show();
+    }
+
+    private void showInstallerProfileDialog(InstallerItem installer){
+        if(!capability("installerProfileV1")){unavailable("Карточка монтажника","Редактирование станет доступно после обновления серверного API.");return;}
+        LinearLayout form=v();form.setPadding(dp(18),0,dp(18),0);
+        EditText name=edit("ФИО монтажника"),phone=edit("Телефон"),address=edit("Адрес проживания"),relativeName=edit("ФИО родственника / контакт"),relativePhone=edit("Телефон родственника");
+        name.setText(installer.name);phone.setText(installer.phone);address.setText(installer.address);relativeName.setText(installer.relativeName);relativePhone.setText(installer.relativePhone);
+        form.addView(labelWrap("ФИО",name));form.addView(labelWrap("Телефон",phone));form.addView(labelWrap("Адрес проживания",address));
+        form.addView(labelWrap("Родственник / контакт",relativeName));form.addView(labelWrap("Телефон родственника",relativePhone));
+        CheckBox contract=new CheckBox(this);contract.setText("Договор оказания услуг подписан");contract.setChecked(installer.serviceContractSigned);form.addView(contract);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Данные монтажника").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            if(name.getText().toString().trim().isEmpty()){toast("Укажите ФИО");return;}
+            try{
+                JSONObject b=new JSONObject();b.put("installerId",installer.id);b.put("expectedRevision",installer.revision);b.put("name",name.getText().toString().trim());b.put("phone",phone.getText().toString().trim());b.put("address",address.getText().toString().trim());b.put("relativeName",relativeName.getText().toString().trim());b.put("relativePhone",relativePhone.getText().toString().trim());b.put("serviceContractSigned",contract.isChecked());
+                api.mutate("updateInstallerProfile",b,new ApiClient.Callback(){public void onSuccess(JSONObject json){dialog.dismiss();toast("Данные монтажника сохранены");syncNow(false);}public void onError(String error){showApiError(error);}});
+            }catch(Exception e){showApiError("Не удалось сохранить данные монтажника");}
         }));dialog.show();
     }
 
@@ -1576,8 +1610,10 @@ public class MainActivity extends Activity {
             String role=e.optString("role","");
             if(role.equalsIgnoreCase("INSTALLER")||role.toLowerCase(Locale.ROOT).contains("монтаж")||role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED")){
                 long[] pp=payroll.getOrDefault(e.optString("id"),new long[2]);
-                installers.add(new InstallerItem(e.optString("id"),e.optString("name"),0,0,0,pp[0],pp[1],0,"","Не заполнено"));
-                installers.get(installers.size()-1).hired=role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED");
+                InstallerItem item=new InstallerItem(e.optString("id"),e.optString("name"),0,0,0,pp[0],pp[1],0,"","Не заполнено");
+                item.hired=role.equalsIgnoreCase("НАЁМНИК")||e.optString("workerKind").equals("HIRED");
+                item.phone=e.optString("phone","");item.address=e.optString("address","");item.relativeName=e.optString("relativeName","");item.relativePhone=e.optString("relativePhone","");item.serviceContractSigned=e.optBoolean("serviceContractSigned",false);item.revision=e.optInt("revision",1);
+                installers.add(item);
             }
             if(role.equalsIgnoreCase("ENGINEER")||role.equalsIgnoreCase("PARTNER")||role.toLowerCase(Locale.ROOT).contains("инжен")||role.toLowerCase(Locale.ROOT).contains("партн")){
                 engineers.add(new EngineerItem(e.optString("id"),e.optString("name"),0,0,0,0));
@@ -2034,8 +2070,8 @@ public class MainActivity extends Activity {
             this.id=id;this.address=address;this.client=client;this.phone=phone;this.workType=workType;this.status=status;this.progress=progress;this.contract=contract;this.paid=paid;this.engineer=engineer;this.manager=manager;this.installers=installers;this.revision=revision;
         }
     }
-    static final class InstallerItem{boolean hired=false;
-        String id,name,uniformDate,status;int workDays,daysOff,closedObjects,tools;long accrued,paid;
+    static final class InstallerItem{boolean hired=false,serviceContractSigned=false;
+        String id,name,uniformDate,status,phone="",address="",relativeName="",relativePhone="";int workDays,daysOff,closedObjects,tools,revision=1;long accrued,paid;
         InstallerItem(String id,String name,int workDays,int daysOff,int closedObjects,long accrued,long paid,int tools,String uniformDate,String status){this.id=id;this.name=name;this.workDays=workDays;this.daysOff=daysOff;this.closedObjects=closedObjects;this.accrued=accrued;this.paid=paid;this.tools=tools;this.uniformDate=uniformDate;this.status=status;}
     }
     static final class AttentionItem{String severity,title,subtitle,target;AttentionItem(String s,String t,String sub,String target){this.severity=s;this.title=t;this.subtitle=sub;this.target=target;}}
